@@ -1,43 +1,103 @@
 {
-  "name": "VitaConnect – Telehealth",
+  "id": "/",
+  "name": "VitaConnect – Telehealth Platform",
   "short_name": "VitaConnect",
-  "description": "Connect with doctors, sync your health data, and manage your wellness — all in one place.",
-  "start_url": "/",
+  "description": "Connect with doctors instantly, sync your health data from Health Connect, and manage your complete wellness journey — all in one secure app.",
+  "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "portrait-primary",
-  "background_color": "#0a0f1e",
+  "background_color": "#030810",
   "theme_color": "#0a8ce8",
-  "scope": "/",
   "lang": "en",
   "dir": "ltr",
   "categories": ["health", "medical", "lifestyle"],
-  "screenshots": [],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icons/screenshot-wide.jpg",
+      "sizes": "1280x800",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "VitaConnect Dashboard – health metrics, appointments and doctor directory"
+    },
+    {
+      "src": "/icons/screenshot-narrow.jpg",
+      "sizes": "390x844",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "VitaConnect on mobile – your health at a glance"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Book Appointment",
       "short_name": "Book",
-      "description": "Schedule a new consultation",
+      "description": "Schedule a new consultation with a doctor",
       "url": "/appointments/new",
-      "icons": [{ "src": "/icons/shortcut-book.png", "sizes": "96x96" }]
+      "icons": [
+        { "src": "/icons/shortcut-book.png", "sizes": "96x96", "type": "image/png" }
+      ]
     },
     {
       "name": "My Health Data",
       "short_name": "Health",
-      "description": "View your health metrics",
+      "description": "View your synced health metrics and trends",
       "url": "/health-data",
-      "icons": [{ "src": "/icons/shortcut-health.png", "sizes": "96x96" }]
+      "icons": [
+        { "src": "/icons/shortcut-health.png", "sizes": "96x96", "type": "image/png" }
+      ]
     }
-  ],
-  "icons": [
-    { "src": "/icons/icon-72x72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-96x96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-144x144.png", "sizes": "144x144", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-152x152.png", "sizes": "152x152", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
   ],
   "related_applications": [
     {
@@ -47,12 +107,6 @@
     }
   ],
   "prefer_related_applications": false,
-  "protocol_handlers": [
-    {
-      "protocol": "web+vitaconnect",
-      "url": "/handle?url=%s"
-    }
-  ],
   "share_target": {
     "action": "/share",
     "method": "POST",
@@ -61,7 +115,15 @@
       "title": "title",
       "text": "text",
       "url": "url",
-      "files": [{ "name": "file", "accept": ["image/*", "application/pdf"] }]
+      "files": [
+        { "name": "file", "accept": ["image/*", "application/pdf"] }
+      ]
     }
-  }
+  },
+  "protocol_handlers": [
+    {
+      "protocol": "web+vitaconnect",
+      "url": "/handle?url=%s"
+    }
+  ]
 }
