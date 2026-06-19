@@ -3,9 +3,9 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.vitaconnect.app",
+      "package_name": "app.vercel.temed.twa",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_YOUR_SHA256_CERT_FINGERPRINT"
+        "EB:85:D0:11:1B:54:78:93:39:BC:EA:DB:68:4A:0A:D7:ED:F0:85:45:D2:07:9B:4A:30:F4:C8:43:C5:0C:67:5E"
       ]
     }
   }
