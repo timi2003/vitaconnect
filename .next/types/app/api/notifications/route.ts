@@ -1,4 +1,4 @@
-// File: C:\Users\PC\Downloads\Temed\app\api\notifications\route.ts
+// File: C:\Users\PC\Downloads\vitaconnect\app\api\notifications\route.ts
 import * as entry from '../../../../../app/api/notifications/route.js'
 import type { NextRequest } from 'next/server.js'
 

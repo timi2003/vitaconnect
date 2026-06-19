@@ -1,4 +1,4 @@
-// File: C:\Users\PC\Downloads\Temed\app\offline\page.tsx
+// File: C:\Users\PC\Downloads\vitaconnect\app\offline\page.tsx
 import * as entry from '../../../../app/offline/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

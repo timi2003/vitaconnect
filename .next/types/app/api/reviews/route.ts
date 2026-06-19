@@ -1,4 +1,4 @@
-// File: C:\Users\PC\Downloads\Temed\app\api\reviews\route.ts
+// File: C:\Users\PC\Downloads\vitaconnect\app\api\reviews\route.ts
 import * as entry from '../../../../../app/api/reviews/route.js'
 import type { NextRequest } from 'next/server.js'
 
