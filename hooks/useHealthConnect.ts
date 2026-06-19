@@ -1,358 +1,343 @@
-// hooks/useHealthConnect.ts
-// Health Connect SDK integration for Android WebView / TWA
-// Docs: https://developer.android.com/health-and-fitness/guides/health-connect
-
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 
-// ─── Types matching Health Connect Read Types ───────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-export type HCPermission =
-  | "android.permission.health.READ_HEART_RATE"
-  | "android.permission.health.WRITE_HEART_RATE"
-  | "android.permission.health.READ_STEPS"
-  | "android.permission.health.WRITE_STEPS"
-  | "android.permission.health.READ_BLOOD_PRESSURE"
-  | "android.permission.health.WRITE_BLOOD_PRESSURE"
-  | "android.permission.health.READ_BLOOD_GLUCOSE"
-  | "android.permission.health.WRITE_BLOOD_GLUCOSE"
-  | "android.permission.health.READ_OXYGEN_SATURATION"
-  | "android.permission.health.WRITE_OXYGEN_SATURATION"
-  | "android.permission.health.READ_BODY_TEMPERATURE"
-  | "android.permission.health.WRITE_BODY_TEMPERATURE"
-  | "android.permission.health.READ_SLEEP"
-  | "android.permission.health.WRITE_SLEEP"
-  | "android.permission.health.READ_WEIGHT"
-  | "android.permission.health.WRITE_WEIGHT"
-  | "android.permission.health.READ_HEIGHT"
-  | "android.permission.health.READ_ACTIVE_CALORIES_BURNED"
-  | "android.permission.health.READ_DISTANCE"
-  | "android.permission.health.READ_EXERCISE"
-  | "android.permission.health.WRITE_EXERCISE"
-  | "android.permission.health.READ_RESPIRATORY_RATE"
-  | "android.permission.health.READ_BODY_FAT"
-  | "android.permission.health.READ_NUTRITION"
-  | "android.permission.health.WRITE_NUTRITION";
+export type HCAvailability =
+  | "checking" | "Available" | "NotInstalled" | "NotSupported" | "WebOnly";
 
 export type HCDataType =
-  | "HeartRate"
-  | "Steps"
-  | "BloodPressure"
-  | "BloodGlucose"
-  | "OxygenSaturation"
-  | "BodyTemperature"
-  | "SleepSession"
-  | "Weight"
-  | "Height"
-  | "ActiveCaloriesBurned"
-  | "Distance"
-  | "ExerciseSession"
-  | "RespiratoryRate"
-  | "BodyFat"
-  | "Nutrition";
+  | "HeartRate" | "Steps" | "BloodPressure" | "BloodGlucose"
+  | "OxygenSaturation" | "BodyTemperature" | "SleepSession"
+  | "Weight" | "ActiveCaloriesBurned" | "RespiratoryRate";
 
 export interface HCRecord {
-  type: HCDataType;
-  time?: string;         // ISO8601
-  startTime?: string;
-  endTime?: string;
-  count?: number;        // steps
+  type:            HCDataType;
+  time?:           string;
+  startTime?:      string;
+  endTime?:        string;
+  count?:          number;
   beatsPerMinute?: number;
-  systolic?: { value: number; unit: string };
-  diastolic?: { value: number; unit: string };
-  level?: { value: number; unit: string };    // glucose, o2, temp
-  percentage?: number;   // body fat
-  inKilograms?: number;
-  inMeters?: number;
-  inKilocalories?: number;
-  inKilometers?: number;
-  exerciseType?: number;
-  stages?: Array<{ startTime: string; endTime: string; stage: number }>;
-  metadata?: {
-    id: string;
-    clientRecordId?: string;
-    lastModifiedTime?: string;
-    dataOrigin?: string;
-    recordingMethod?: number;
-    device?: {
-      manufacturer?: string;
-      model?: string;
-      type?: number;
-    };
-  };
+  rate?:           number;
+  percentage?:     number;
+  systolic?:       { value: number };
+  diastolic?:      { value: number };
+  level?:          { value: number };
+  weight?:         { inKilograms: number };
+  energy?:         { inKilocalories: number };
+  temperature?:    { inCelsius: number };
+  metadata?:       { id: string; dataOrigin?: string };
 }
 
-export interface HCSyncResult {
+export interface SyncResult {
   dataType: HCDataType;
-  count: number;
-  error?: string;
+  inserted: number;
+  skipped:  number;
+  alerts:   number;
+  error?:   string;
 }
 
-interface HealthConnectBridge {
-  isAvailable: () => Promise<boolean>;
-  checkAvailability: () => Promise<"Available" | "NotInstalled" | "NotSupported">;
-  requestPermissions: (permissions: HCPermission[]) => Promise<{ grantedPermissions: HCPermission[] }>;
-  revokeAllPermissions: () => Promise<void>;
-  getGrantedPermissions: () => Promise<{ grantedPermissions: HCPermission[] }>;
-  readRecords: (type: HCDataType, options: {
-    timeRangeFilter: {
-      operator: "between" | "before" | "after";
-      startTime?: string;
-      endTime?: string;
-    };
-    pageSize?: number;
-    pageToken?: string;
-    ascendingOrder?: boolean;
-  }) => Promise<{ records: HCRecord[]; pageToken?: string }>;
-  insertRecords: (records: Array<{
-    recordType: HCDataType;
-    [key: string]: unknown;
-  }>) => Promise<{ recordIdsList: string[] }>;
-  deleteRecordsByUuids: (type: HCDataType, idList: string[], clientRecordIdsList?: string[]) => Promise<void>;
-  getChanges: (token: string) => Promise<{
-    upsertedRecords: HCRecord[];
-    deletedUids: string[];
-    hasMore: boolean;
-    nextChangesToken: string;
-  }>;
-  getChangesToken: (types: HCDataType[]) => Promise<{ token: string }>;
+// ── Bridge interface ──────────────────────────────────────────────────────────
+
+interface HCBridge {
+  checkAvailability:       () => string;
+  requestPermissions:      (json: string, cbId: string) => void;
+  getGrantedPermissions:   (cbId: string) => void;
+  readHeartRate:           (s: string, e: string, cb: string) => void;
+  readSteps:               (s: string, e: string, cb: string) => void;
+  readBloodPressure:       (s: string, e: string, cb: string) => void;
+  readBloodGlucose:        (s: string, e: string, cb: string) => void;
+  readOxygenSaturation:    (s: string, e: string, cb: string) => void;
+  readBodyTemperature:     (s: string, e: string, cb: string) => void;
+  readWeight:              (s: string, e: string, cb: string) => void;
+  readSleepSession:        (s: string, e: string, cb: string) => void;
+  readActiveCaloriesBurned:(s: string, e: string, cb: string) => void;
+  readRespiratoryRate:     (s: string, e: string, cb: string) => void;
 }
 
-// ─── Android bridge detection ────────────────────────────────────────────────
+interface PermBridge { launchPermissions: () => void; }
 
-function getHealthConnectBridge(): HealthConnectBridge | null {
-  if (typeof window === "undefined") return null;
+type CBFn = (error: string | null, data: string | null) => void;
 
-  // TWA/WebView injects this bridge via JavaScript interface
-  const w = window as unknown as {
-    HealthConnectAndroid?: HealthConnectBridge;
-    Android?: { healthConnect?: HealthConnectBridge };
-    ReactNativeWebView?: unknown;
+// ── Global callback registry ──────────────────────────────────────────────────
+// Kotlin calls window.__hcCb(id, error, data) after each async read
+
+function setupRegistry() {
+  if (typeof window === "undefined") return;
+  const w = window as unknown as Record<string, unknown>;
+  if (w.__hcCb) return;
+
+  const reg = new Map<string, CBFn>();
+  w.__hcCb  = (id: string, err: string | null, data: string | null) => {
+    const cb = reg.get(id);
+    if (cb) { cb(err, data); reg.delete(id); }
   };
-
-  if (w.HealthConnectAndroid) return w.HealthConnectAndroid;
-  if (w.Android?.healthConnect) return w.Android.healthConnect;
-
-  return null;
+  w.__hcReg = reg;
 }
 
-// ─── Required permissions for the platform ──────────────────────────────────
+function callBridge(
+  method: keyof HCBridge,
+  ...args: string[]
+): Promise<HCRecord[]> {
+  return new Promise((resolve, reject) => {
+    const w   = window as unknown as Record<string, unknown>;
+    const bridge = (w.HealthConnectAndroid as HCBridge | undefined);
+    if (!bridge) return reject(new Error("Bridge not available"));
 
-export const ALL_READ_PERMISSIONS: HCPermission[] = [
-  "android.permission.health.READ_HEART_RATE",
-  "android.permission.health.READ_STEPS",
-  "android.permission.health.READ_BLOOD_PRESSURE",
-  "android.permission.health.READ_BLOOD_GLUCOSE",
-  "android.permission.health.READ_OXYGEN_SATURATION",
-  "android.permission.health.READ_BODY_TEMPERATURE",
-  "android.permission.health.READ_SLEEP",
-  "android.permission.health.READ_WEIGHT",
-  "android.permission.health.READ_HEIGHT",
-  "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
-  "android.permission.health.READ_DISTANCE",
-  "android.permission.health.READ_EXERCISE",
-  "android.permission.health.READ_RESPIRATORY_RATE",
-  "android.permission.health.READ_BODY_FAT",
+    const reg = w.__hcReg as Map<string, CBFn>;
+    const id  = `hc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    reg.set(id, (err, data) => {
+      if (err)   return reject(new Error(err));
+      try        { resolve(JSON.parse(data ?? "[]")); }
+      catch      { resolve([]); }
+    });
+
+    (bridge[method] as (...a: string[]) => void)(...args, id);
+
+    // 15s timeout
+    setTimeout(() => {
+      if (reg.has(id)) {
+        reg.delete(id);
+        reject(new Error(`Timeout: ${method}`));
+      }
+    }, 15_000);
+  });
+}
+
+// ── Data types and their bridge methods ───────────────────────────────────────
+
+const SYNC_TYPES: Array<{ type: HCDataType; method: keyof HCBridge }> = [
+  { type: "HeartRate",            method: "readHeartRate"             },
+  { type: "Steps",                method: "readSteps"                 },
+  { type: "BloodPressure",        method: "readBloodPressure"         },
+  { type: "BloodGlucose",         method: "readBloodGlucose"          },
+  { type: "OxygenSaturation",     method: "readOxygenSaturation"      },
+  { type: "BodyTemperature",      method: "readBodyTemperature"       },
+  { type: "Weight",               method: "readWeight"                },
+  { type: "SleepSession",         method: "readSleepSession"          },
+  { type: "ActiveCaloriesBurned", method: "readActiveCaloriesBurned"  },
+  { type: "RespiratoryRate",      method: "readRespiratoryRate"       },
 ];
 
-// ─── Main hook ───────────────────────────────────────────────────────────────
+const POLL_MS     = 60_000;
+const LOOKBACK_MS = 60_000;
+
+// ── Main hook ─────────────────────────────────────────────────────────────────
 
 export function useHealthConnect() {
-  const [isAvailable, setIsAvailable]               = useState(false);
-  const [availability, setAvailability]             = useState<"checking" | "Available" | "NotInstalled" | "NotSupported" | "WebOnly">("checking");
-  const [grantedPermissions, setGrantedPermissions] = useState<HCPermission[]>([]);
-  const [isSyncing, setIsSyncing]                   = useState(false);
-  const [lastSyncAt, setLastSyncAt]                 = useState<Date | null>(null);
-  const [syncResults, setSyncResults]               = useState<HCSyncResult[]>([]);
-  const bridgeRef = useRef<HealthConnectBridge | null>(null);
+  const [availability,       setAvailability]       = useState<HCAvailability>("checking");
+  const [isAvailable,        setIsAvailable]        = useState(false);
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
+  const [isSyncing,          setIsSyncing]          = useState(false);
+  const [isPolling,          setIsPolling]          = useState(false);
+  const [lastSyncAt,         setLastSyncAt]         = useState<Date | null>(null);
+  const [syncResults,        setSyncResults]        = useState<SyncResult[]>([]);
+  const [liveMetrics,        setLiveMetrics]        = useState<Record<string, HCRecord>>({});
 
-  // ── Initialise ──────────────────────────────────────────────────────────
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPollRef  = useRef<Date>(new Date(Date.now() - LOOKBACK_MS));
+
+  // ── Initialise ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    async function init() {
-      bridgeRef.current = getHealthConnectBridge();
+    if (typeof window === "undefined") return;
+    setupRegistry();
 
-      if (!bridgeRef.current) {
-        setAvailability("WebOnly");
-        setIsAvailable(false);
-        return;
-      }
+    const w      = window as unknown as Record<string, unknown>;
+    const bridge = w.HealthConnectAndroid as HCBridge | undefined;
 
-      try {
-        const status = await bridgeRef.current.checkAvailability();
-        setAvailability(status);
-        setIsAvailable(status === "Available");
-
-        if (status === "Available") {
-          const { grantedPermissions: perms } =
-            await bridgeRef.current.getGrantedPermissions();
-          setGrantedPermissions(perms);
-        }
-      } catch {
-        setAvailability("NotSupported");
-      }
+    if (!bridge) {
+      setAvailability("WebOnly");
+      setIsAvailable(false);
+      return;
     }
 
-    init();
+    try {
+      const status = bridge.checkAvailability();   // synchronous
+      setAvailability(status as HCAvailability);
+      const available = status === "Available";
+      setIsAvailable(available);
+
+      if (available) {
+        // Get existing permissions
+        const reg = w.__hcReg as Map<string, CBFn>;
+        const id  = `hc_init_${Date.now()}`;
+        reg.set(id, (_err, data) => {
+          try {
+            const perms = JSON.parse(data ?? "[]") as string[];
+            setGrantedPermissions(perms);
+          } catch { /* ignore */ }
+        });
+        bridge.getGrantedPermissions(id);
+      }
+    } catch {
+      setAvailability("NotSupported");
+    }
   }, []);
 
-  // ── Request permissions ──────────────────────────────────────────────────
-  const requestPermissions = useCallback(
-    async (permissions: HCPermission[] = ALL_READ_PERMISSIONS) => {
-      if (!bridgeRef.current || !isAvailable) {
-        toast.error("Health Connect is not available on this device");
-        return [];
-      }
-      try {
-        const { grantedPermissions: perms } =
-          await bridgeRef.current.requestPermissions(permissions);
-        setGrantedPermissions(perms);
-        toast.success(`${perms.length} health permissions granted`);
-        return perms;
-      } catch (err) {
-        console.error("Permission request failed", err);
-        toast.error("Failed to request Health Connect permissions");
-        return [];
-      }
-    },
-    [isAvailable]
-  );
+  // ── Listen for permission request event ────────────────────────────────────
+  // Bridge fires this event, we forward to native launcher
+  useEffect(() => {
+    function handlePermissionRequest() {
+      const w    = window as unknown as Record<string, unknown>;
+      const perm = w.HealthConnectPermissions as PermBridge | undefined;
+      perm?.launchPermissions();
+    }
+    window.addEventListener("hc-request-permissions", handlePermissionRequest);
+    return () => window.removeEventListener("hc-request-permissions", handlePermissionRequest);
+  }, []);
 
-  // ── Read records ─────────────────────────────────────────────────────────
-  const readRecords = useCallback(
-    async (
-      type: HCDataType,
-      startTime: Date,
-      endTime: Date = new Date(),
-      pageSize = 1000
-    ): Promise<HCRecord[]> => {
-      if (!bridgeRef.current || !isAvailable) return [];
+  // ── Request permissions ────────────────────────────────────────────────────
+  const requestPermissions = useCallback(async () => {
+    const w      = window as unknown as Record<string, unknown>;
+    const bridge = w.HealthConnectAndroid as HCBridge | undefined;
 
-      const allRecords: HCRecord[] = [];
-      let pageToken: string | undefined;
+    if (!bridge || !isAvailable) {
+      toast.error("Health Connect is not available on this device");
+      return [];
+    }
 
-      do {
-        const result = await bridgeRef.current.readRecords(type, {
-          timeRangeFilter: {
-            operator: "between",
-            startTime: startTime.toISOString(),
-            endTime: endTime.toISOString(),
-          },
-          pageSize,
-          pageToken,
-          ascendingOrder: false,
-        });
-        allRecords.push(...result.records);
-        pageToken = result.pageToken;
-      } while (pageToken);
+    return new Promise<string[]>((resolve) => {
+      const reg = w.__hcReg as Map<string, CBFn>;
+      const id  = `hc_perm_${Date.now()}`;
 
-      return allRecords;
-    },
-    [isAvailable]
-  );
-
-  // ── Sync all health data to server ───────────────────────────────────────
-  const syncToServer = useCallback(
-    async (since?: Date) => {
-      if (!isAvailable) {
-        toast.error("Health Connect not available");
-        return;
-      }
-
-      setIsSyncing(true);
-      const results: HCSyncResult[] = [];
-      const startTime = since ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // 7 days
-
-      const dataTypes: HCDataType[] = [
-        "HeartRate", "Steps", "BloodPressure", "BloodGlucose",
-        "OxygenSaturation", "BodyTemperature", "SleepSession",
-        "Weight", "ActiveCaloriesBurned", "Distance",
-        "RespiratoryRate",
-      ];
-
-      for (const type of dataTypes) {
+      reg.set(id, (_err, data) => {
         try {
-          const records = await readRecords(type, startTime);
-          if (records.length === 0) continue;
-
-          const response = await fetch("/api/health-data/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type, records }),
-          });
-
-          if (!response.ok) throw new Error("Sync request failed");
-          const data = await response.json();
-          results.push({ dataType: type, count: data.inserted ?? records.length });
-        } catch (err) {
-          results.push({
-            dataType: type,
-            count: 0,
-            error: err instanceof Error ? err.message : "Unknown error",
-          });
+          const granted = JSON.parse(data ?? "[]") as string[];
+          setGrantedPermissions(granted);
+          if (granted.length > 0) {
+            toast.success(`${granted.length} health permissions granted`);
+          } else {
+            toast.error("No permissions granted. Please allow health data access.");
+          }
+          resolve(granted);
+        } catch {
+          resolve([]);
         }
+      });
+
+      bridge.requestPermissions("[]", id);
+    });
+  }, [isAvailable]);
+
+  // ── Read one data type ─────────────────────────────────────────────────────
+  const readRecords = useCallback(
+    async (type: HCDataType, since: Date, until: Date = new Date()): Promise<HCRecord[]> => {
+      if (!isAvailable) return [];
+      const entry = SYNC_TYPES.find((s) => s.type === type);
+      if (!entry) return [];
+      try {
+        return await callBridge(entry.method, since.toISOString(), until.toISOString());
+      } catch (err) {
+        console.warn(`[HC] ${type} read failed:`, err);
+        return [];
       }
-
-      setSyncResults(results);
-      setLastSyncAt(new Date());
-      setIsSyncing(false);
-
-      const total = results.reduce((sum, r) => sum + r.count, 0);
-      toast.success(`Synced ${total} health records`);
-      return results;
-    },
-    [isAvailable, readRecords]
-  );
-
-  // ── Incremental sync using change tokens ─────────────────────────────────
-  const incrementalSync = useCallback(
-    async (token: string) => {
-      if (!bridgeRef.current || !isAvailable) return null;
-      return bridgeRef.current.getChanges(token);
     },
     [isAvailable]
   );
 
-  const getChangesToken = useCallback(
-    async (types: HCDataType[] = ["HeartRate", "Steps", "BloodPressure"]) => {
-      if (!bridgeRef.current || !isAvailable) return null;
-      const { token } = await bridgeRef.current.getChangesToken(types);
-      return token;
-    },
-    [isAvailable]
-  );
+  // ── Post batch to server ───────────────────────────────────────────────────
+  async function postToServer(type: HCDataType, records: HCRecord[]): Promise<SyncResult> {
+    if (!records.length) return { dataType: type, inserted: 0, skipped: 0, alerts: 0 };
+    try {
+      const res = await fetch("/api/health-data/sync", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ type, records }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      return { dataType: type, inserted: d.inserted ?? 0, skipped: d.skipped ?? 0, alerts: d.alerts ?? 0 };
+    } catch (err) {
+      return { dataType: type, inserted: 0, skipped: 0, alerts: 0, error: String(err) };
+    }
+  }
 
-  // ── Latest metrics ────────────────────────────────────────────────────────
-  const getLatestMetric = useCallback(
-    async (type: HCDataType): Promise<HCRecord | null> => {
-      const records = await readRecords(
-        type,
-        new Date(Date.now() - 24 * 60 * 60 * 1000)
-      );
-      return records[0] ?? null;
-    },
-    [readRecords]
-  );
+  // ── Full sync ──────────────────────────────────────────────────────────────
+  const syncToServer = useCallback(async (since?: Date) => {
+    if (!isAvailable) {
+      toast.error("Health Connect is not available");
+      return [];
+    }
+    setIsSyncing(true);
+    const from    = since ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const results: SyncResult[] = [];
 
-  const hasPermission = useCallback(
-    (permission: HCPermission) => grantedPermissions.includes(permission),
-    [grantedPermissions]
-  );
+    for (const { type } of SYNC_TYPES) {
+      const records = await readRecords(type, from);
+      const result  = await postToServer(type, records);
+      results.push(result);
+      if (records.length > 0) setLiveMetrics((p) => ({ ...p, [type]: records[0] }));
+    }
+
+    setSyncResults(results);
+    setLastSyncAt(new Date());
+    setIsSyncing(false);
+    lastPollRef.current = new Date();
+
+    const total  = results.reduce((s, r) => s + r.inserted, 0);
+    const alerts = results.reduce((s, r) => s + r.alerts,   0);
+    if (total > 0) toast.success(`Synced ${total} readings${alerts > 0 ? ` · ${alerts} alerts` : ""}`);
+    else toast(`No new readings found`, { icon: "ℹ️" });
+
+    return results;
+  }, [isAvailable, readRecords]);
+
+  // ── Incremental poll ───────────────────────────────────────────────────────
+  const incrementalSync = useCallback(async () => {
+    if (!isAvailable || isSyncing) return;
+    const since = lastPollRef.current;
+    const now   = new Date();
+
+    for (const { type } of SYNC_TYPES) {
+      const records = await readRecords(type, since, now);
+      if (!records.length) continue;
+      setLiveMetrics((p) => ({ ...p, [type]: records[0] }));
+      postToServer(type, records).then((r) => {
+        if (r.alerts > 0) toast.error(`⚠️ Abnormal ${type} reading`, { duration: 8000 });
+      });
+    }
+
+    lastPollRef.current = now;
+    setLastSyncAt(new Date());
+  }, [isAvailable, isSyncing, readRecords]);
+
+  // ── Start / stop polling ───────────────────────────────────────────────────
+  const startPolling = useCallback(() => {
+    if (pollTimerRef.current || !isAvailable) return;
+    setIsPolling(true);
+    incrementalSync();
+    pollTimerRef.current = setInterval(incrementalSync, POLL_MS);
+  }, [isAvailable, incrementalSync]);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+    setIsPolling(false);
+  }, []);
+
+  // ── Auto-start when permissions are present ────────────────────────────────
+  useEffect(() => {
+    if (isAvailable && grantedPermissions.length > 0) startPolling();
+    return () => stopPolling();
+  }, [isAvailable, grantedPermissions, startPolling, stopPolling]);
+
+  useEffect(() => () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); }, []);
 
   return {
-    isAvailable,
     availability,
+    isAvailable,
     grantedPermissions,
     isSyncing,
+    isPolling,
     lastSyncAt,
     syncResults,
+    liveMetrics,
     requestPermissions,
-    readRecords,
     syncToServer,
-    incrementalSync,
-    getChangesToken,
-    getLatestMetric,
-    hasPermission,
+    startPolling,
+    stopPolling,
+    readRecords,
   };
 }
