@@ -190,37 +190,48 @@ export function useHealthConnect() {
   }, []);
 
   // ── Request permissions ────────────────────────────────────────────────────
-  const requestPermissions = useCallback(async () => {
-    const w      = window as unknown as Record<string, unknown>;
-    const bridge = w.HealthConnectAndroid as HCBridge | undefined;
+ const requestPermissions = useCallback(async () => {
+  const w = window as any;
 
-    if (!bridge || !isAvailable) {
-      toast.error("Health Connect is not available on this device");
-      return [];
+  const permBridge = w.HealthConnectPermissions as { launchPermissions: () => void } | undefined;
+  const bridge = w.HealthConnectAndroid as HCBridge | undefined;
+
+  if (!permBridge && !bridge) {
+    toast.error("Health Connect bridge not ready");
+    return [];
+  }
+
+  return new Promise<string[]>((resolve) => {
+    const reg = w.__hcReg as Map<string, CBFn>;
+    const id = `hc_perm_${Date.now()}`;
+
+    reg.set(id, (_err, data) => {
+      try {
+        const granted = JSON.parse(data ?? "[]") as string[];
+        setGrantedPermissions(granted);
+
+        if (granted.length > 0) {
+          toast.success(`✅ ${granted.length} permissions granted`);
+        } else {
+          toast.error("No permissions granted. Please allow health data access in settings.");
+        }
+        resolve(granted);
+      } catch {
+        resolve([]);
+      }
+    });
+
+    // === THIS IS THE MOST IMPORTANT PART ===
+    if (permBridge) {
+      permBridge.launchPermissions();        // Direct native call
     }
 
-    return new Promise<string[]>((resolve) => {
-      const reg = w.__hcReg as Map<string, CBFn>;
-      const id  = `hc_perm_${Date.now()}`;
-
-      reg.set(id, (_err, data) => {
-        try {
-          const granted = JSON.parse(data ?? "[]") as string[];
-          setGrantedPermissions(granted);
-          if (granted.length > 0) {
-            toast.success(`${granted.length} health permissions granted`);
-          } else {
-            toast.error("No permissions granted. Please allow health data access.");
-          }
-          resolve(granted);
-        } catch {
-          resolve([]);
-        }
-      });
-
+    // Fallback (in case direct call fails)
+    if (bridge) {
       bridge.requestPermissions("[]", id);
-    });
-  }, [isAvailable]);
+    }
+  });
+}, []);   // Empty dependency array is fine here
 
   // ── Read one data type ─────────────────────────────────────────────────────
   const readRecords = useCallback(
