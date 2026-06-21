@@ -192,12 +192,10 @@ export function useHealthConnect() {
   // ── Request permissions ────────────────────────────────────────────────────
  const requestPermissions = useCallback(async () => {
   const w = window as any;
-
-  const permBridge = w.HealthConnectPermissions as { launchPermissions: () => void } | undefined;
   const bridge = w.HealthConnectAndroid as HCBridge | undefined;
 
-  if (!permBridge && !bridge) {
-    toast.error("Health Connect bridge not ready");
+  if (!bridge || !isAvailable) {
+    toast.error("Health Connect is not available on this device");
     return [];
   }
 
@@ -213,7 +211,7 @@ export function useHealthConnect() {
         if (granted.length > 0) {
           toast.success(`✅ ${granted.length} permissions granted`);
         } else {
-          toast.error("No permissions granted. Please allow health data access in settings.");
+          toast.error("No permissions granted. Please allow health data access.");
         }
         resolve(granted);
       } catch {
@@ -221,18 +219,11 @@ export function useHealthConnect() {
       }
     });
 
-    // === THIS IS THE MOST IMPORTANT PART ===
-    if (permBridge) {
-      permBridge.launchPermissions();        // Direct native call
-    }
+     bridge.requestPermissions("[]", id);
+    });
+  }, [isAvailable]);
 
-    // Fallback (in case direct call fails)
-    if (bridge) {
-      bridge.requestPermissions("[]", id);
-    }
-  });
-}, []);   // Empty dependency array is fine here
-
+  
   // ── Read one data type ─────────────────────────────────────────────────────
   const readRecords = useCallback(
     async (type: HCDataType, since: Date, until: Date = new Date()): Promise<HCRecord[]> => {
