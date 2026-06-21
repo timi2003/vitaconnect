@@ -189,41 +189,41 @@ export function useHealthConnect() {
     return () => window.removeEventListener("hc-request-permissions", handlePermissionRequest);
   }, []);
 
-  // ── Request permissions ────────────────────────────────────────────────────
- const requestPermissions = useCallback(async () => {
-  const w = window as any;
-  const bridge = w.HealthConnectAndroid as HCBridge | undefined;
+  // ── FIXED Request permissions ─────────────────────────────────────────────
+  const requestPermissions = useCallback(async () => {
+    const w = window as any;
+    const bridge = w.HealthConnectAndroid as HCBridge | undefined;
 
-  if (!bridge || !isAvailable) {
-    toast.error("Health Connect is not available on this device");
-    return [];
-  }
+    if (!bridge || !isAvailable) {
+      toast.error("Health Connect is not available on this device");
+      return [];
+    }
 
-  return new Promise<string[]>((resolve) => {
-    const reg = w.__hcReg as Map<string, CBFn>;
-    const id = `hc_perm_${Date.now()}`;
+    return new Promise<string[]>((resolve) => {
+      const reg = w.__hcReg as Map<string, CBFn>;
+      const id = `hc_perm_${Date.now()}`;
 
-    reg.set(id, (_err, data) => {
-      try {
-        const granted = JSON.parse(data ?? "[]") as string[];
-        setGrantedPermissions(granted);
+      reg.set(id, (_err, data) => {
+        try {
+          const granted = JSON.parse(data ?? "[]") as string[];
+          setGrantedPermissions(granted);
 
-        if (granted.length > 0) {
-          toast.success(`✅ ${granted.length} permissions granted`);
-        } else {
-          toast.error("No permissions granted. Please allow health data access.");
+          if (granted.length > 0) {
+            toast.success(`✅ ${granted.length} permissions granted`);
+          } else {
+            toast.error("No permissions granted. Please allow health data access.");
+          }
+          resolve(granted);
+        } catch {
+          resolve([]);
         }
-        resolve(granted);
-      } catch {
-        resolve([]);
-      }
-    });
+      });
 
-     bridge.requestPermissions("[]", id);
+      // ONLY call bridge.requestPermissions — this is the fix
+      bridge.requestPermissions("[]", id);
     });
   }, [isAvailable]);
 
-  
   // ── Read one data type ─────────────────────────────────────────────────────
   const readRecords = useCallback(
     async (type: HCDataType, since: Date, until: Date = new Date()): Promise<HCRecord[]> => {
