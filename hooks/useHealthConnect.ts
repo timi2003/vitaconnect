@@ -181,9 +181,15 @@ export function useHealthConnect() {
   // Bridge fires this event, we forward to native launcher
   useEffect(() => {
     function handlePermissionRequest() {
+      console.log("[HC] Event 'hc-request-permissions' received");
       const w    = window as unknown as Record<string, unknown>;
       const perm = w.HealthConnectPermissions as PermBridge | undefined;
-      perm?.launchPermissions();
+      if (perm) {
+        console.log("[HC] Calling launchPermissions()");
+        perm.launchPermissions();
+      } else {
+        console.error("[HC] HealthConnectPermissions bridge not found!");
+      }
     }
     window.addEventListener("hc-request-permissions", handlePermissionRequest);
     return () => window.removeEventListener("hc-request-permissions", handlePermissionRequest);
@@ -219,10 +225,13 @@ export function useHealthConnect() {
         }
       });
 
-      // ONLY call bridge.requestPermissions — this is the fix
+      // ONLY call bridge.requestPermissions — this stores callbackId and fires the event
+      console.log("[HC] Calling requestPermissions with id:", id);
       bridge.requestPermissions("[]", id);
     });
   }, [isAvailable]);
+
+  // ... rest of the file remains exactly the same ...
 
   // ── Read one data type ─────────────────────────────────────────────────────
   const readRecords = useCallback(
