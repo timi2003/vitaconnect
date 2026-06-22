@@ -41,9 +41,31 @@ export async function POST(req: NextRequest) {
       select: { id: true, email: true, name: true, role: true },
     });
 
+    // === FIXED: Create Account record for NextAuth Credentials ===
+    await prisma.account.create({
+      data: {
+        userId:            user.id,
+        type:              "credentials",
+        provider:          "credentials",
+        providerAccountId: user.email,           // usually email for credentials
+        access_token:      null,
+        refresh_token:     null,
+      },
+    });
+
     // Create role-specific profile
     if (data.role === "PATIENT") {
       await prisma.patientProfile.create({ data: { userId: user.id } });
+    } else if (data.role === "DOCTOR") {
+      await prisma.doctorProfile.create({ 
+        data: { 
+          userId: user.id,
+          licenseNumber: `LIC-${Date.now()}`,
+          specializations: [],
+          consultationFee: 50,
+          isAvailableNow: true,
+        } 
+      });
     }
 
     // Welcome notification

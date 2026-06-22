@@ -43,11 +43,21 @@ export default function RegisterPage() {
         const data = await res.json();
         throw new Error(data.error ?? "Registration failed");
       }
+
       await signIn("credentials", {
-        email: form.email, password: form.password, redirect: false,
+        email: form.email, 
+        password: form.password, 
+        redirect: false,
       });
+
       toast.success("Account created! Welcome to VitaConnect.");
-      router.push("/dashboard");
+
+      // Role-based redirect - FIXED
+      if (form.role === "DOCTOR") {
+        router.push("/doctor/dashboard");
+      } else {
+        router.push("/dashboard");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Registration failed");
     } finally {
