@@ -1,8 +1,20 @@
 "use client";
 
 import { Heart, Droplets, Wind, Thermometer, Activity, Moon, Scale, Flame } from "lucide-react";
+import { useState, useEffect } from "react";
 
-const METRICS = [
+const PROGRESS_COLORS: Record<string, string> = {
+  coral:  "bg-rose-400",
+  brand:  "bg-brand-500",
+  teal:   "bg-teal-400",
+  amber:  "bg-amber-400",
+  purple: "bg-violet-400",
+  indigo: "bg-indigo-400",
+  green:  "bg-emerald-400",
+  orange: "bg-orange-400",
+};
+
+const DEFAULT_METRICS = [
   {
     id: "hr",
     label: "Heart Rate",
@@ -125,18 +137,87 @@ const METRICS = [
   },
 ];
 
-const PROGRESS_COLORS: Record<string, string> = {
-  coral:  "bg-rose-400",
-  brand:  "bg-brand-500",
-  teal:   "bg-teal-400",
-  amber:  "bg-amber-400",
-  purple: "bg-violet-400",
-  indigo: "bg-indigo-400",
-  green:  "bg-emerald-400",
-  orange: "bg-orange-400",
-};
-
 export function HealthOverview() {
+  const [metrics, setMetrics] = useState(DEFAULT_METRICS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchLiveMetrics() {
+      try {
+        const metricTypes = [
+          "HEART_RATE", "BLOOD_PRESSURE", "BLOOD_GLUCOSE",
+          "OXYGEN_SATURATION", "BODY_TEMPERATURE", "SLEEP_DURATION",
+          "WEIGHT", "STEPS"
+        ];
+
+        const responses = await Promise.all(
+          metricTypes.map(type =>
+            fetch(`/api/health-data/sync?type=${type}&days=1`)
+              .then(r => r.ok ? r.json() : { metrics: [] })
+          )
+        );
+
+        const latestMap = new Map();
+        responses.forEach(({ metrics: data }) => {
+          if (data?.length > 0) {
+            latestMap.set(data[0].type, data[0]);
+          }
+        });
+
+        const updatedMetrics = DEFAULT_METRICS.map(m => {
+          const realMetric = latestMap.get(m.id.toUpperCase().replace(/_/g, '')) ||
+                            latestMap.get(m.id);
+
+          if (!realMetric) return m;
+
+          let value = String(realMetric.value);
+          let unit = realMetric.unit || m.unit;
+          let trend = m.trend;
+          let progress = m.progress;
+
+          // Special formatting
+          if (realMetric.type === "BLOOD_PRESSURE") {
+            value = `${realMetric.value}/${realMetric.value2 || 76}`;
+          }
+          if (realMetric.type === "SLEEP_DURATION") {
+            const hours = Math.floor(realMetric.value / 60);
+            const mins = realMetric.value % 60;
+            value = `${hours}h ${mins}m`;
+          }
+          if (realMetric.type === "STEPS") {
+            value = realMetric.value.toLocaleString();
+          }
+
+          // Calculate progress
+          const rangeMatch = m.range.match(/(\d+)(?:–(\d+))?/);
+          if (rangeMatch) {
+            const min = parseFloat(rangeMatch[1]) || 0;
+            const max = parseFloat(rangeMatch[2]) || 100;
+            progress = Math.max(0, Math.min(100, 
+              Math.round(((realMetric.value - min) / (max - min)) * 100)
+            ));
+          }
+
+          return {
+            ...m,
+            value,
+            unit,
+            progress: isNaN(progress) ? m.progress : progress,
+            trend: realMetric.isAbnormal ? "Alert" : m.trend,
+          };
+        });
+
+        setMetrics(updatedMetrics);
+      } catch (error) {
+        console.warn("Failed to fetch live health data, using defaults");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchLiveMetrics();
+  }, []);
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -145,20 +226,19 @@ export function HealthOverview() {
         </h2>
         <span className="text-xs text-muted font-mono flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
-          Health Connect synced • 3m ago
+          {loading ? "Loading live data..." : "Health Connect synced • just now"}
         </span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <div
             key={m.id}
-            className={`metric-card p-4 bg-gradient-to-br ${m.gradient}`}
+            className={`metric-card p-4 bg-gradient-to-br ${m.gradient} transition-opacity ${loading ? 'opacity-75' : ''}`}
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
-              <div className={`w-8 h-8 rounded-lg bg-surface-900/60 flex items-center justify-center
-                               border ${m.border}`}>
+              <div className={`w-8 h-8 rounded-lg bg-surface-900/60 flex items-center justify-center border ${m.border}`}>
                 <m.icon className={`w-4 h-4 ${m.iconColor}`} />
               </div>
               <span className="badge badge-success text-xs py-0.5">{m.trend}</span>

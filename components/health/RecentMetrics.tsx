@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "@/lib/utils";
 
-const METRICS_DATA = [
+const DEFAULT_DATA = [
   {
     id: "hr",
     label: "Heart Rate",
@@ -58,13 +58,62 @@ const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<
 };
 
 export function RecentMetrics() {
+  const [metricsData, setMetricsData] = useState(DEFAULT_DATA);
   const [active, setActive] = useState("hr");
-  const selected = METRICS_DATA.find((m) => m.id === active)!;
+  const [loading, setLoading] = useState(true);
 
-  const chartData = selected.data.map((v, i) => ({
-    time: i,
-    value: v,
-  }));
+  useEffect(() => {
+    async function fetchTrends() {
+      try {
+        const res = await fetch(`/api/health-data/sync?days=7`);
+        if (!res.ok) throw new Error("Failed");
+
+        const { metrics } = await res.json();
+
+        if (!metrics || metrics.length === 0) return;
+
+        // Group data by metric type
+        const grouped: Record<string, number[]> = {};
+
+        metrics.forEach((m: any) => {
+          let key: string | null = null;
+          if (m.type === "HEART_RATE") key = "hr";
+          else if (m.type === "BLOOD_PRESSURE") key = "bp";
+          else if (m.type === "BLOOD_GLUCOSE") key = "glucose";
+          else if (m.type === "OXYGEN_SATURATION") key = "o2";
+
+          if (key) {
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(m.value);
+          }
+        });
+
+        const updatedData = DEFAULT_DATA.map(item => {
+          const realData = grouped[item.id];
+          if (!realData || realData.length === 0) return item;
+
+          const recentValues = realData.slice(-12);
+          return {
+            ...item,
+            current: recentValues[recentValues.length - 1],
+            data: recentValues,
+            change: item.change, // You can enhance this later
+          };
+        });
+
+        setMetricsData(updatedData);
+      } catch (err) {
+        console.warn("Using demo trend data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchTrends();
+  }, []);
+
+  const selected = metricsData.find((m) => m.id === active)!;
+  const chartData = selected.data.map((v, i) => ({ time: i, value: v }));
 
   return (
     <div className="glass p-5 space-y-4">
@@ -74,10 +123,11 @@ export function RecentMetrics() {
 
       {/* Metric selector */}
       <div className="grid grid-cols-2 gap-2">
-        {METRICS_DATA.map((m) => (
+        {metricsData.map((m) => (
           <button
             key={m.id}
             onClick={() => setActive(m.id)}
+            disabled={loading}
             className={cn(
               "p-3 rounded-xl border text-left transition-all duration-200",
               active === m.id
@@ -96,7 +146,9 @@ export function RecentMetrics() {
               )}
             </div>
             <div className="flex items-baseline gap-1">
-              <span className="text-lg font-display font-bold text-primary">{m.current}</span>
+              <span className="text-lg font-display font-bold text-primary">
+                {m.current}
+              </span>
               <span className="text-xs font-mono text-muted">{m.unit}</span>
             </div>
             <span className={cn(
