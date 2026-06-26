@@ -1,222 +1,224 @@
 "use client";
 
-import { Heart, Droplets, Wind, Thermometer, Activity, Moon, Scale, Flame } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import {
+  Heart, Droplets, Wind, Thermometer,
+  Activity, Moon, Scale, Flame, RefreshCw,
+} from "lucide-react";
 
-const PROGRESS_COLORS: Record<string, string> = {
-  coral:  "bg-rose-400",
-  brand:  "bg-brand-500",
-  teal:   "bg-teal-400",
-  amber:  "bg-amber-400",
-  purple: "bg-violet-400",
-  indigo: "bg-indigo-400",
-  green:  "bg-emerald-400",
-  orange: "bg-orange-400",
-};
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-const DEFAULT_METRICS = [
+interface HealthMetric {
+  id: string;
+  type: string;
+  value: number;
+  value2?: number | null;
+  unit: string;
+  recordedAt: string;
+  isAbnormal: boolean;
+}
+
+interface MetricState {
+  loading: boolean;
+  metric: HealthMetric | null;
+}
+
+// ── Metric definitions (no dummy values) ─────────────────────────────────────
+
+const METRIC_DEFS = [
   {
     id: "hr",
+    apiType: "HEART_RATE",
     label: "Heart Rate",
-    value: "72",
     unit: "bpm",
     icon: Heart,
-    color: "coral",
     gradient: "from-rose-500/20 to-orange-500/10",
     border: "border-rose-500/20",
     iconColor: "text-rose-400",
-    trend: "+2",
-    status: "normal",
+    progressColor: "bg-rose-400",
     range: "60–100",
-    progress: 52,
+    // Progress: how far into 60–100 bpm range
+    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 60) / 40) * 100)),
+    formatValue: (v: number) => String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Normal"),
   },
   {
     id: "bp",
+    apiType: "BLOOD_PRESSURE",
     label: "Blood Pressure",
-    value: "118/76",
     unit: "mmHg",
     icon: Activity,
-    color: "brand",
-    gradient: "from-brand-500/20 to-cyan-500/10",
-    border: "border-brand-500/20",
-    iconColor: "text-brand-400",
-    trend: "Optimal",
-    status: "normal",
+    gradient: "from-blue-500/20 to-cyan-500/10",
+    border: "border-blue-500/20",
+    iconColor: "text-blue-400",
+    progressColor: "bg-blue-400",
     range: "<120/80",
-    progress: 74,
+    calcProgress: (v: number) => Math.min(100, Math.max(0, (v / 120) * 100)),
+    // value = systolic, value2 = diastolic
+    formatValue: (v: number, m?: HealthMetric) =>
+      m?.value2 != null ? `${Math.round(v)}/${Math.round(m.value2)}` : String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ High" : "Optimal"),
   },
   {
     id: "o2",
+    apiType: "OXYGEN_SATURATION",
     label: "Oxygen Sat.",
-    value: "98",
     unit: "%",
     icon: Wind,
-    color: "teal",
     gradient: "from-teal-500/20 to-cyan-500/10",
     border: "border-teal-500/20",
     iconColor: "text-teal-400",
-    trend: "Normal",
-    status: "normal",
+    progressColor: "bg-teal-400",
     range: "95–100",
-    progress: 90,
+    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 90) / 10) * 100)),
+    formatValue: (v: number) => String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Low" : "Normal"),
   },
   {
     id: "glucose",
+    apiType: "BLOOD_GLUCOSE",
     label: "Blood Glucose",
-    value: "94",
     unit: "mg/dL",
     icon: Droplets,
-    color: "amber",
     gradient: "from-amber-500/20 to-yellow-500/10",
     border: "border-amber-500/20",
     iconColor: "text-amber-400",
-    trend: "Fasting",
-    status: "normal",
+    progressColor: "bg-amber-400",
     range: "70–99",
-    progress: 67,
+    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 70) / 56) * 100)),
+    formatValue: (v: number) => String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Fasting OK"),
   },
   {
     id: "temp",
+    apiType: "BODY_TEMPERATURE",
     label: "Temperature",
-    value: "36.8",
     unit: "°C",
     icon: Thermometer,
-    color: "purple",
     gradient: "from-violet-500/20 to-purple-500/10",
     border: "border-violet-500/20",
     iconColor: "text-violet-400",
-    trend: "Normal",
-    status: "normal",
+    progressColor: "bg-violet-400",
     range: "36.1–37.2",
-    progress: 70,
+    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 36.1) / 1.1) * 100)),
+    formatValue: (v: number) => v.toFixed(1),
+    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Abnormal" : "Normal"),
   },
   {
     id: "sleep",
+    apiType: "SLEEP_DURATION",
     label: "Last Sleep",
-    value: "7h 24m",
     unit: "",
     icon: Moon,
-    color: "indigo",
     gradient: "from-indigo-500/20 to-blue-500/10",
     border: "border-indigo-500/20",
     iconColor: "text-indigo-400",
-    trend: "Good",
-    status: "normal",
+    progressColor: "bg-indigo-400",
     range: "7–9h",
-    progress: 82,
+    // value is in minutes
+    calcProgress: (v: number) => Math.min(100, Math.max(0, (v / 540) * 100)),
+    formatValue: (v: number) => {
+      const h = Math.floor(v / 60);
+      const m = Math.round(v % 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    },
+    formatTrend: (m: HealthMetric) => {
+      const hours = m.value / 60;
+      if (hours >= 7 && hours <= 9) return "Good";
+      if (hours < 6) return "⚠ Short";
+      return "Fair";
+    },
   },
   {
     id: "weight",
+    apiType: "WEIGHT",
     label: "Weight",
-    value: "73.2",
     unit: "kg",
     icon: Scale,
-    color: "green",
     gradient: "from-emerald-500/20 to-green-500/10",
     border: "border-emerald-500/20",
     iconColor: "text-emerald-400",
-    trend: "−0.3 kg",
-    status: "normal",
-    range: "BMI 22.4",
-    progress: 60,
+    progressColor: "bg-emerald-400",
+    range: "Tracked",
+    calcProgress: (_v: number) => 60, // static visual for weight
+    formatValue: (v: number) => v.toFixed(1),
+    formatTrend: (_m: HealthMetric) => "Logged",
   },
   {
     id: "steps",
+    apiType: "STEPS",
     label: "Steps Today",
-    value: "8,432",
     unit: "steps",
     icon: Flame,
-    color: "orange",
     gradient: "from-orange-500/20 to-amber-500/10",
     border: "border-orange-500/20",
     iconColor: "text-orange-400",
-    trend: "84% goal",
-    status: "normal",
+    progressColor: "bg-orange-400",
     range: "Goal: 10,000",
-    progress: 84,
+    calcProgress: (v: number) => Math.min(100, (v / 10_000) * 100),
+    formatValue: (v: number) => Math.round(v).toLocaleString(),
+    formatTrend: (m: HealthMetric) => {
+      const pct = Math.round((m.value / 10_000) * 100);
+      return `${pct}% goal`;
+    },
   },
-];
+] as const;
+
+// ── Fetch helper ──────────────────────────────────────────────────────────────
+
+async function fetchLatestMetric(apiType: string): Promise<HealthMetric | null> {
+  try {
+    const res = await fetch(
+      `/api/health-data/sync?type=${apiType}&days=7`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const { metrics } = (await res.json()) as { metrics: HealthMetric[] };
+    // API returns desc order → index 0 is the most recent
+    return metrics?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function HealthOverview() {
-  const [metrics, setMetrics] = useState(DEFAULT_METRICS);
-  const [loading, setLoading] = useState(true);
+  const [states, setStates] = useState<Record<string, MetricState>>(
+    () =>
+      Object.fromEntries(
+        METRIC_DEFS.map((d) => [d.id, { loading: true, metric: null }])
+      )
+  );
+
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const loadAll = async () => {
+    // Reset to loading
+    setStates((prev) =>
+      Object.fromEntries(
+        Object.keys(prev).map((k) => [k, { loading: true, metric: prev[k].metric }])
+      )
+    );
+
+    await Promise.allSettled(
+      METRIC_DEFS.map(async (def) => {
+        const metric = await fetchLatestMetric(def.apiType);
+        setStates((prev) => ({
+          ...prev,
+          [def.id]: { loading: false, metric },
+        }));
+      })
+    );
+
+    setLastUpdated(new Date());
+  };
 
   useEffect(() => {
-    async function fetchLiveMetrics() {
-      try {
-        const metricTypes = [
-          "HEART_RATE", "BLOOD_PRESSURE", "BLOOD_GLUCOSE",
-          "OXYGEN_SATURATION", "BODY_TEMPERATURE", "SLEEP_DURATION",
-          "WEIGHT", "STEPS"
-        ];
+    loadAll();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-        const responses = await Promise.all(
-          metricTypes.map(type =>
-            fetch(`/api/health-data/sync?type=${type}&days=1`)
-              .then(r => r.ok ? r.json() : { metrics: [] })
-          )
-        );
-
-        const latestMap = new Map();
-        responses.forEach(({ metrics: data }) => {
-          if (data?.length > 0) {
-            latestMap.set(data[0].type, data[0]);
-          }
-        });
-
-        const updatedMetrics = DEFAULT_METRICS.map(m => {
-          const realMetric = latestMap.get(m.id.toUpperCase().replace(/_/g, '')) ||
-                            latestMap.get(m.id);
-
-          if (!realMetric) return m;
-
-          let value = String(realMetric.value);
-          let unit = realMetric.unit || m.unit;
-          let trend = m.trend;
-          let progress = m.progress;
-
-          // Special formatting
-          if (realMetric.type === "BLOOD_PRESSURE") {
-            value = `${realMetric.value}/${realMetric.value2 || 76}`;
-          }
-          if (realMetric.type === "SLEEP_DURATION") {
-            const hours = Math.floor(realMetric.value / 60);
-            const mins = realMetric.value % 60;
-            value = `${hours}h ${mins}m`;
-          }
-          if (realMetric.type === "STEPS") {
-            value = realMetric.value.toLocaleString();
-          }
-
-          // Calculate progress
-          const rangeMatch = m.range.match(/(\d+)(?:–(\d+))?/);
-          if (rangeMatch) {
-            const min = parseFloat(rangeMatch[1]) || 0;
-            const max = parseFloat(rangeMatch[2]) || 100;
-            progress = Math.max(0, Math.min(100, 
-              Math.round(((realMetric.value - min) / (max - min)) * 100)
-            ));
-          }
-
-          return {
-            ...m,
-            value,
-            unit,
-            progress: isNaN(progress) ? m.progress : progress,
-            trend: realMetric.isAbnormal ? "Alert" : m.trend,
-          };
-        });
-
-        setMetrics(updatedMetrics);
-      } catch (error) {
-        console.warn("Failed to fetch live health data, using defaults");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchLiveMetrics();
-  }, []);
+  const anyLoading = Object.values(states).some((s) => s.loading);
 
   return (
     <section>
@@ -224,49 +226,105 @@ export function HealthOverview() {
         <h2 className="text-base font-display font-bold text-primary">
           Live Health Metrics
         </h2>
-        <span className="text-xs text-muted font-mono flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
-          {loading ? "Loading live data..." : "Health Connect synced • just now"}
-        </span>
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-xs text-muted font-mono flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+              Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button
+            onClick={loadAll}
+            disabled={anyLoading}
+            className="btn-ghost text-xs py-1 px-2.5 flex items-center gap-1.5"
+            aria-label="Refresh metrics"
+          >
+            <RefreshCw className={`w-3 h-3 ${anyLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-        {metrics.map((m) => (
-          <div
-            key={m.id}
-            className={`metric-card p-4 bg-gradient-to-br ${m.gradient} transition-opacity ${loading ? 'opacity-75' : ''}`}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className={`w-8 h-8 rounded-lg bg-surface-900/60 flex items-center justify-center border ${m.border}`}>
-                <m.icon className={`w-4 h-4 ${m.iconColor}`} />
-              </div>
-              <span className="badge badge-success text-xs py-0.5">{m.trend}</span>
-            </div>
+        {METRIC_DEFS.map((def) => {
+          const { loading, metric } = states[def.id];
+          const Icon = def.icon;
 
-            {/* Value */}
-            <div className="mb-3">
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-display font-bold text-primary leading-none">
-                  {m.value}
-                </span>
-                {m.unit && (
-                  <span className="text-xs text-muted font-mono">{m.unit}</span>
+          const displayValue = metric
+            ? "formatValue" in def
+              ? (def.formatValue as (v: number, m?: HealthMetric) => string)(metric.value, metric)
+              : String(metric.value)
+            : null;
+
+          const trend = metric ? def.formatTrend(metric) : null;
+          const progress = metric ? def.calcProgress(metric.value) : 0;
+          const isAbnormal = metric?.isAbnormal ?? false;
+
+          return (
+            <div
+              key={def.id}
+              className={`metric-card p-4 bg-gradient-to-br ${def.gradient}`}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div
+                  className={`w-8 h-8 rounded-lg bg-surface-900/60 flex items-center justify-center border ${def.border}`}
+                >
+                  <Icon className={`w-4 h-4 ${def.iconColor}`} />
+                </div>
+
+                {loading ? (
+                  <span className="h-5 w-14 rounded-full bg-surface-700/50 animate-pulse" />
+                ) : trend ? (
+                  <span
+                    className={`badge text-xs py-0.5 ${
+                      isAbnormal ? "badge-error" : "badge-success"
+                    }`}
+                  >
+                    {trend}
+                  </span>
+                ) : (
+                  <span className="badge badge-ghost text-xs py-0.5 text-muted">
+                    No data
+                  </span>
                 )}
               </div>
-              <p className="text-xs text-muted font-display mt-0.5">{m.label}</p>
-            </div>
 
-            {/* Progress */}
-            <div className="progress-bar">
-              <div
-                className={`progress-fill ${PROGRESS_COLORS[m.color]}`}
-                style={{ width: `${m.progress}%` }}
-              />
+              {/* Value */}
+              <div className="mb-3">
+                {loading ? (
+                  <>
+                    <div className="h-7 w-20 rounded bg-surface-700/50 animate-pulse mb-1" />
+                    <div className="h-3 w-16 rounded bg-surface-700/30 animate-pulse" />
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-display font-bold text-primary leading-none">
+                        {displayValue ?? "—"}
+                      </span>
+                      {metric && def.unit && (
+                        <span className="text-xs text-muted font-mono">{def.unit}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted font-display mt-0.5">{def.label}</p>
+                  </>
+                )}
+              </div>
+
+              {/* Progress bar */}
+              <div className="progress-bar">
+                {!loading && metric && (
+                  <div
+                    className={`progress-fill ${def.progressColor}`}
+                    style={{ width: `${progress}%` }}
+                  />
+                )}
+              </div>
+              <p className="text-xs text-muted font-mono mt-1">{def.range}</p>
             </div>
-            <p className="text-xs text-muted font-mono mt-1">{m.range}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

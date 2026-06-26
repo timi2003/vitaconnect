@@ -1,31 +1,25 @@
-// prisma/schema.prisma
-// VitaConnect Telehealth Platform — Database Schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// ─────────────────────────────────────────────
-// AUTH & USERS
-// ─────────────────────────────────────────────
 model Account {
   id                String  @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -49,50 +43,456 @@ model VerificationToken {
 }
 
 model User {
-  id                String     @id @default(cuid())
-  email             String     @unique
-  emailVerified     DateTime?
-  name              String?
-  image             String?
-  passwordHash      String?
-  role              UserRole   @default(PATIENT)
-  phone             String?
-  dateOfBirth       DateTime?
-  gender            Gender?
-  bloodType         BloodType?
-  height            Float? // cm
-  weight            Float? // kg
-  allergies         String[]
-  chronicConditions String[]
-  emergencyContact  Json? // { name, phone, relationship }
-  address           Json? // { street, city, state, country, zip }
-  timezone          String     @default("UTC")
-  locale            String     @default("en")
-  isActive          Boolean    @default(true)
-  isVerified        Boolean    @default(false)
-  notifPrefs        Json? // notification preferences
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-
+  id                    String              @id @default(cuid())
+  email                 String              @unique
+  emailVerified         DateTime?
+  name                  String?
+  image                 String?
+  passwordHash          String?
+  role                  UserRole            @default(PATIENT)
+  phone                 String?
+  dateOfBirth           DateTime?
+  gender                Gender?
+  bloodType             BloodType?
+  height                Float?
+  weight                Float?
+  allergies             String[]
+  chronicConditions     String[]
+  emergencyContact      Json?
+  address               Json?
+  timezone              String              @default("UTC")
+  locale                String              @default("en")
+  isActive              Boolean             @default(true)
+  isVerified            Boolean             @default(false)
+  notifPrefs            Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
   accounts              Account[]
-  sessions              Session[]
-  patientProfile        PatientProfile?
-  doctorProfile         DoctorProfile?
-  appointmentsAsPatient Appointment[]       @relation("PatientAppointments")
   appointmentsAsDoctor  Appointment[]       @relation("DoctorAppointments")
-  healthRecords         HealthRecord[]
-  healthMetrics         HealthMetric[]
-  prescriptions         Prescription[]
-  labResults            LabResult[]
-  notifications         Notification[]
-  payments              Payment[]
-  reviews               Review[]
-  messages              Message[]
-  videoSessions         VideoSession[]
-  documents             MedicalDocument[]
-  deviceConnections     DeviceConnection[]
-  healthConnectSync     HealthConnectSync[]
+  appointmentsAsPatient Appointment[]       @relation("PatientAppointments")
   auditLogs             AuditLog[]
+  deviceConnections     DeviceConnection[]
+  doctorProfile         DoctorProfile?
+  healthConnectSync     HealthConnectSync[]
+  healthMetrics         HealthMetric[]
+  healthRecords         HealthRecord[]
+  labResults            LabResult[]
+  documents             MedicalDocument[]
+  messages              Message[]
+  notifications         Notification[]
+  patientProfile        PatientProfile?
+  payments              Payment[]
+  prescriptions         Prescription[]
+  reviews               Review[]
+  sessions              Session[]
+  videoSessions         VideoSession[]
+}
+
+model PatientProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  insuranceProvider     String?
+  insurancePolicyNo     String?
+  insuranceGroupNo      String?
+  primaryDoctorId       String?
+  medicalHistorySummary String?
+  preferredLanguage     String   @default("en")
+  consentForms          Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DoctorProfile {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  licenseNumber      String             @unique
+  licenseExpiry      DateTime?
+  npiNumber          String?            @unique
+  specializations    String[]
+  subSpecializations String[]
+  qualifications     Json[]
+  experience         Int                @default(0)
+  bio                String?
+  consultationFee    Float              @default(0)
+  followUpFee        Float              @default(0)
+  currency           String             @default("USD")
+  availableFor       ConsultType[]
+  languages          String[]
+  rating             Float              @default(0)
+  totalReviews       Int                @default(0)
+  totalConsultations Int                @default(0)
+  isAvailableNow     Boolean            @default(false)
+  hospital           String?
+  department         String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  availabilitySlots  AvailabilitySlot[]
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews            Review[]
+}
+
+model AvailabilitySlot {
+  id           String        @id @default(cuid())
+  doctorId     String
+  dayOfWeek    Int
+  startTime    String
+  endTime      String
+  slotDuration Int           @default(30)
+  isRecurring  Boolean       @default(true)
+  specificDate DateTime?
+  isAvailable  Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  doctor       DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  patientId       String
+  doctorId        String
+  scheduledAt     DateTime
+  duration        Int               @default(30)
+  type            ConsultType       @default(VIDEO)
+  status          AppointmentStatus @default(SCHEDULED)
+  reason          String?
+  symptoms        String[]
+  notes           String?
+  doctorNotes     String?
+  diagnosis       String?
+  followUpDate    DateTime?
+  roomId          String?
+  recordingUrl    String?
+  cancelReason    String?
+  cancelledBy     String?
+  rescheduledFrom String?
+  reminderSent    Boolean           @default(false)
+  paymentId       String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  doctor          User              @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  patient         User              @relation("PatientAppointments", fields: [patientId], references: [id])
+  payment         Payment?          @relation(fields: [paymentId], references: [id])
+  labOrders       LabOrder[]
+  messages        Message[]
+  prescriptions   Prescription[]
+  review          Review?
+  videoSession    VideoSession?
+}
+
+model VideoSession {
+  id            String        @id @default(cuid())
+  appointmentId String        @unique
+  userId        String
+  roomId        String        @unique
+  provider      String        @default("jitsi")
+  startedAt     DateTime?
+  endedAt       DateTime?
+  duration      Int?
+  recordingUrl  String?
+  transcriptUrl String?
+  status        SessionStatus @default(PENDING)
+  participants  Json?
+  createdAt     DateTime      @default(now())
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id])
+}
+
+model HealthRecord {
+  id           String    @id @default(cuid())
+  userId       String
+  type         String
+  title        String
+  description  String?
+  diagnosis    String?
+  icdCode      String?
+  severity     Severity?
+  onsetDate    DateTime?
+  resolvedDate DateTime?
+  isActive     Boolean   @default(true)
+  attachments  String[]
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model HealthMetric {
+  id         String           @id @default(cuid())
+  userId     String
+  type       HealthMetricType
+  value      Float
+  value2     Float?
+  unit       String
+  recordedAt DateTime
+  source     MetricSource     @default(MANUAL)
+  deviceId   String?
+  syncId     String?
+  notes      String?
+  isAbnormal Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, recordedAt])
+}
+
+model HealthConnectSync {
+  id              String     @id @default(cuid())
+  userId          String
+  dataType        String
+  lastSyncAt      DateTime?
+  syncToken       String?
+  status          SyncStatus @default(PENDING)
+  recordsImported Int        @default(0)
+  errorMessage    String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dataType])
+}
+
+model DeviceConnection {
+  id           String    @id @default(cuid())
+  userId       String
+  deviceName   String
+  deviceType   String
+  manufacturer String?
+  model        String?
+  platform     String?
+  isConnected  Boolean   @default(true)
+  lastSeenAt   DateTime?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Prescription {
+  id               String             @id @default(cuid())
+  patientId        String
+  doctorId         String?
+  appointmentId    String?
+  status           PrescriptionStatus @default(ACTIVE)
+  diagnosis        String?
+  notes            String?
+  issueDate        DateTime           @default(now())
+  expiryDate       DateTime?
+  refillsAllowed   Int                @default(0)
+  refillsUsed      Int                @default(0)
+  pharmacyNotes    String?
+  digitalSignature String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  appointment      Appointment?       @relation(fields: [appointmentId], references: [id])
+  patient          User               @relation(fields: [patientId], references: [id])
+  medications      PrescriptionItem[]
+}
+
+model PrescriptionItem {
+  id             String       @id @default(cuid())
+  prescriptionId String
+  medicationName String
+  genericName    String?
+  dosage         String
+  form           String?
+  strength       String?
+  frequency      String
+  route          String?
+  duration       String
+  quantity       Int
+  refillQuantity Int          @default(0)
+  instructions   String?
+  sideEffects    String?
+  interactions   String?
+  isChronic      Boolean      @default(false)
+  startDate      DateTime?
+  endDate        DateTime?
+  createdAt      DateTime     @default(now())
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+}
+
+model LabOrder {
+  id            String         @id @default(cuid())
+  patientId     String
+  doctorId      String?
+  appointmentId String?
+  orderDate     DateTime       @default(now())
+  status        LabOrderStatus @default(PENDING)
+  priority      Priority       @default(ROUTINE)
+  notes         String?
+  labName       String?
+  dueDate       DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  appointment   Appointment?   @relation(fields: [appointmentId], references: [id])
+  tests         LabOrderItem[]
+  results       LabResult[]
+}
+
+model LabOrderItem {
+  id         String   @id @default(cuid())
+  labOrderId String
+  testCode   String
+  testName   String
+  category   String?
+  isStat     Boolean  @default(false)
+  notes      String?
+  createdAt  DateTime @default(now())
+  labOrder   LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+}
+
+model LabResult {
+  id             String    @id @default(cuid())
+  userId         String
+  labOrderId     String?
+  testName       String
+  testCode       String?
+  value          String
+  unit           String?
+  referenceRange String?
+  isAbnormal     Boolean   @default(false)
+  abnormalFlag   String?
+  interpretation String?
+  collectedAt    DateTime?
+  reportedAt     DateTime?
+  labName        String?
+  labTech        String?
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  attachmentUrl  String?
+  createdAt      DateTime  @default(now())
+  labOrder       LabOrder? @relation(fields: [labOrderId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
+}
+
+model Conversation {
+  id           String                    @id @default(cuid())
+  type         ConvType                  @default(DIRECT)
+  title        String?
+  isActive     Boolean                   @default(true)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+  isAdmin        Boolean      @default(false)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String?
+  appointmentId  String?
+  senderId       String
+  content        String
+  type           MessageType   @default(TEXT)
+  attachments    Json?
+  isRead         Boolean       @default(false)
+  readAt         DateTime?
+  isDeleted      Boolean       @default(false)
+  editedAt       DateTime?
+  replyToId      String?
+  createdAt      DateTime      @default(now())
+  appointment    Appointment?  @relation(fields: [appointmentId], references: [id])
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  sender         User          @relation(fields: [senderId], references: [id])
+}
+
+model Payment {
+  id              String         @id @default(cuid())
+  userId          String
+  amount          Float
+  currency        String         @default("USD")
+  status          PaymentStatus  @default(PENDING)
+  method          PaymentMethod?
+  stripePaymentId String?        @unique
+  stripeSessionId String?
+  description     String?
+  metadata        Json?
+  refundedAmount  Float?
+  refundReason    String?
+  paidAt          DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  appointments    Appointment[]
+  user            User           @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  channel   String[]         @default(["in_app"])
+  sentAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id            String        @id @default(cuid())
+  patientId     String
+  doctorId      String
+  appointmentId String        @unique
+  rating        Int
+  comment       String?
+  tags          String[]
+  isAnonymous   Boolean       @default(false)
+  isVerified    Boolean       @default(true)
+  response      String?
+  respondedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id])
+  doctor        DoctorProfile @relation(fields: [doctorId], references: [id])
+  patient       User          @relation(fields: [patientId], references: [id])
+}
+
+model MedicalDocument {
+  id           String    @id @default(cuid())
+  userId       String
+  title        String
+  type         DocType
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  description  String?
+  tags         String[]
+  isShared     Boolean   @default(false)
+  sharedWith   String[]
+  uploadedById String?
+  date         DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, timestamp])
+  @@index([resource, resourceId])
 }
 
 enum UserRole {
@@ -122,112 +522,11 @@ enum BloodType {
   UNKNOWN
 }
 
-// ─────────────────────────────────────────────
-// PROFILES
-// ─────────────────────────────────────────────
-model PatientProfile {
-  id                    String   @id @default(cuid())
-  userId                String   @unique
-  insuranceProvider     String?
-  insurancePolicyNo     String?
-  insuranceGroupNo      String?
-  primaryDoctorId       String?
-  medicalHistorySummary String?  @db.Text
-  preferredLanguage     String   @default("en")
-  consentForms          Json? // signed consent timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model DoctorProfile {
-  id                 String             @id @default(cuid())
-  userId             String             @unique
-  licenseNumber      String             @unique
-  licenseExpiry      DateTime?
-  npiNumber          String?            @unique
-  specializations    String[]
-  subSpecializations String[]
-  qualifications     Json[] // [{ degree, institution, year }]
-  experience         Int                @default(0) // years
-  bio                String?            @db.Text
-  consultationFee    Float              @default(0)
-  followUpFee        Float              @default(0)
-  currency           String             @default("USD")
-  availableFor       ConsultType[]
-  languages          String[]
-  rating             Float              @default(0)
-  totalReviews       Int                @default(0)
-  totalConsultations Int                @default(0)
-  isAvailableNow     Boolean            @default(false)
-  availabilitySlots  AvailabilitySlot[]
-  hospital           String?
-  department         String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reviews Review[]
-}
-
 enum ConsultType {
   VIDEO
   AUDIO
   CHAT
   IN_PERSON
-}
-
-model AvailabilitySlot {
-  id           String    @id @default(cuid())
-  doctorId     String
-  dayOfWeek    Int // 0=Sunday, 6=Saturday
-  startTime    String // "09:00"
-  endTime      String // "17:00"
-  slotDuration Int       @default(30) // minutes
-  isRecurring  Boolean   @default(true)
-  specificDate DateTime?
-  isAvailable  Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-
-  doctor DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-}
-
-// ─────────────────────────────────────────────
-// APPOINTMENTS
-// ─────────────────────────────────────────────
-model Appointment {
-  id              String            @id @default(cuid())
-  patientId       String
-  doctorId        String
-  scheduledAt     DateTime
-  duration        Int               @default(30)
-  type            ConsultType       @default(VIDEO)
-  status          AppointmentStatus @default(SCHEDULED)
-  reason          String?
-  symptoms        String[]
-  notes           String?           @db.Text
-  doctorNotes     String?           @db.Text
-  diagnosis       String?           @db.Text
-  followUpDate    DateTime?
-  roomId          String?
-  recordingUrl    String?
-  cancelReason    String?
-  cancelledBy     String?
-  rescheduledFrom String?
-  reminderSent    Boolean           @default(false)
-  paymentId       String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-
-  patient       User           @relation("PatientAppointments", fields: [patientId], references: [id])
-  doctor        User           @relation("DoctorAppointments", fields: [doctorId], references: [id])
-  prescriptions Prescription[]
-  labOrders     LabOrder[]
-  videoSession  VideoSession?
-  payment       Payment?       @relation(fields: [paymentId], references: [id])
-  review        Review?
-  messages      Message[]
 }
 
 enum AppointmentStatus {
@@ -241,28 +540,6 @@ enum AppointmentStatus {
   WAITING
 }
 
-// ─────────────────────────────────────────────
-// VIDEO SESSIONS
-// ─────────────────────────────────────────────
-model VideoSession {
-  id            String        @id @default(cuid())
-  appointmentId String        @unique
-  userId        String
-  roomId        String        @unique
-  provider      String        @default("jitsi")
-  startedAt     DateTime?
-  endedAt       DateTime?
-  duration      Int?
-  recordingUrl  String?
-  transcriptUrl String?
-  status        SessionStatus @default(PENDING)
-  participants  Json?
-  createdAt     DateTime      @default(now())
-
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  user        User        @relation(fields: [userId], references: [id])
-}
-
 enum SessionStatus {
   PENDING
   ACTIVE
@@ -270,54 +547,11 @@ enum SessionStatus {
   FAILED
 }
 
-// ─────────────────────────────────────────────
-// HEALTH RECORDS & METRICS
-// ─────────────────────────────────────────────
-model HealthRecord {
-  id           String    @id @default(cuid())
-  userId       String
-  type         String
-  title        String
-  description  String?   @db.Text
-  diagnosis    String?
-  icdCode      String?
-  severity     Severity?
-  onsetDate    DateTime?
-  resolvedDate DateTime?
-  isActive     Boolean   @default(true)
-  attachments  String[]
-  createdById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 enum Severity {
   MILD
   MODERATE
   SEVERE
   CRITICAL
-}
-
-model HealthMetric {
-  id         String           @id @default(cuid())
-  userId     String
-  type       HealthMetricType
-  value      Float
-  value2     Float? // for BP diastolic, etc.
-  unit       String
-  recordedAt DateTime
-  source     MetricSource     @default(MANUAL)
-  deviceId   String?
-  syncId     String?
-  notes      String?
-  isAbnormal Boolean          @default(false)
-  createdAt  DateTime         @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, type, recordedAt])
 }
 
 enum HealthMetricType {
@@ -359,23 +593,6 @@ enum MetricSource {
   IMPORTED
 }
 
-model HealthConnectSync {
-  id              String     @id @default(cuid())
-  userId          String
-  dataType        String
-  lastSyncAt      DateTime?
-  syncToken       String?
-  status          SyncStatus @default(PENDING)
-  recordsImported Int        @default(0)
-  errorMessage    String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, dataType])
-}
-
 enum SyncStatus {
   PENDING
   SYNCING
@@ -384,137 +601,12 @@ enum SyncStatus {
   PARTIAL
 }
 
-model DeviceConnection {
-  id           String    @id @default(cuid())
-  userId       String
-  deviceName   String
-  deviceType   String
-  manufacturer String?
-  model        String?
-  platform     String?
-  isConnected  Boolean   @default(true)
-  lastSeenAt   DateTime?
-  metadata     Json?
-  createdAt    DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-// ─────────────────────────────────────────────
-// PRESCRIPTIONS
-// ─────────────────────────────────────────────
-model Prescription {
-  id               String             @id @default(cuid())
-  patientId        String
-  doctorId         String?
-  appointmentId    String?
-  status           PrescriptionStatus @default(ACTIVE)
-  medications      PrescriptionItem[]
-  diagnosis        String?
-  notes            String?            @db.Text
-  issueDate        DateTime           @default(now())
-  expiryDate       DateTime?
-  refillsAllowed   Int                @default(0)
-  refillsUsed      Int                @default(0)
-  pharmacyNotes    String?
-  digitalSignature String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-
-  patient     User         @relation(fields: [patientId], references: [id])
-  appointment Appointment? @relation(fields: [appointmentId], references: [id])
-}
-
-model PrescriptionItem {
-  id             String    @id @default(cuid())
-  prescriptionId String
-  medicationName String
-  genericName    String?
-  dosage         String
-  form           String?
-  strength       String?
-  frequency      String
-  route          String?
-  duration       String
-  quantity       Int
-  refillQuantity Int       @default(0)
-  instructions   String?   @db.Text
-  sideEffects    String?
-  interactions   String?
-  isChronic      Boolean   @default(false)
-  startDate      DateTime?
-  endDate        DateTime?
-  createdAt      DateTime  @default(now())
-
-  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
-}
-
 enum PrescriptionStatus {
   ACTIVE
   COMPLETED
   CANCELLED
   EXPIRED
   ON_HOLD
-}
-
-// ─────────────────────────────────────────────
-// LAB ORDERS & RESULTS
-// ─────────────────────────────────────────────
-model LabOrder {
-  id            String         @id @default(cuid())
-  patientId     String
-  doctorId      String?
-  appointmentId String?
-  orderDate     DateTime       @default(now())
-  status        LabOrderStatus @default(PENDING)
-  priority      Priority       @default(ROUTINE)
-  tests         LabOrderItem[]
-  notes         String?
-  labName       String?
-  dueDate       DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  appointment Appointment? @relation(fields: [appointmentId], references: [id])
-  results     LabResult[]
-}
-
-model LabOrderItem {
-  id         String   @id @default(cuid())
-  labOrderId String
-  testCode   String
-  testName   String
-  category   String?
-  isStat     Boolean  @default(false)
-  notes      String?
-  createdAt  DateTime @default(now())
-
-  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
-}
-
-model LabResult {
-  id             String    @id @default(cuid())
-  userId         String
-  labOrderId     String?
-  testName       String
-  testCode       String?
-  value          String
-  unit           String?
-  referenceRange String?
-  isAbnormal     Boolean   @default(false)
-  abnormalFlag   String?
-  interpretation String?   @db.Text
-  collectedAt    DateTime?
-  reportedAt     DateTime?
-  labName        String?
-  labTech        String?
-  reviewedBy     String?
-  reviewedAt     DateTime?
-  attachmentUrl  String?
-  createdAt      DateTime  @default(now())
-
-  user     User      @relation(fields: [userId], references: [id])
-  labOrder LabOrder? @relation(fields: [labOrderId], references: [id])
 }
 
 enum LabOrderStatus {
@@ -532,54 +624,6 @@ enum Priority {
   STAT
 }
 
-// ─────────────────────────────────────────────
-// MESSAGING (FIXED)
-// ─────────────────────────────────────────────
-model Conversation {
-  id        String   @id @default(cuid())
-  type      ConvType @default(DIRECT)
-  title     String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  participants ConversationParticipant[]
-  messages     Message[]
-}
-
-model ConversationParticipant {
-  id             String    @id @default(cuid())
-  conversationId String
-  userId         String
-  joinedAt       DateTime  @default(now())
-  lastReadAt     DateTime?
-  isAdmin        Boolean   @default(false)
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@unique([conversationId, userId])
-}
-
-model Message {
-  id             String      @id @default(cuid())
-  conversationId String?
-  appointmentId  String?
-  senderId       String
-  content        String      @db.Text
-  type           MessageType @default(TEXT)
-  attachments    Json?
-  isRead         Boolean     @default(false)
-  readAt         DateTime?
-  isDeleted      Boolean     @default(false)
-  editedAt       DateTime?
-  replyToId      String?
-  createdAt      DateTime    @default(now())
-
-  sender       User          @relation(fields: [senderId], references: [id])
-  appointment  Appointment?  @relation(fields: [appointmentId], references: [id])
-  conversation Conversation? @relation(fields: [conversationId], references: [id]) // ← FIXED
-}
-
 enum MessageType {
   TEXT
   IMAGE
@@ -594,30 +638,6 @@ enum ConvType {
   DIRECT
   GROUP
   SUPPORT
-}
-
-// ─────────────────────────────────────────────
-// PAYMENTS
-// ─────────────────────────────────────────────
-model Payment {
-  id              String         @id @default(cuid())
-  userId          String
-  amount          Float
-  currency        String         @default("USD")
-  status          PaymentStatus  @default(PENDING)
-  method          PaymentMethod?
-  stripePaymentId String?        @unique
-  stripeSessionId String?
-  description     String?
-  metadata        Json?
-  refundedAmount  Float?
-  refundReason    String?
-  paidAt          DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-
-  user         User          @relation(fields: [userId], references: [id])
-  appointments Appointment[]
 }
 
 enum PaymentStatus {
@@ -638,25 +658,6 @@ enum PaymentMethod {
   CRYPTO
 }
 
-// ─────────────────────────────────────────────
-// NOTIFICATIONS
-// ─────────────────────────────────────────────
-model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String
-  data      Json?
-  isRead    Boolean          @default(false)
-  readAt    DateTime?
-  channel   String[]         @default(["in_app"])
-  sentAt    DateTime?
-  createdAt DateTime         @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 enum NotificationType {
   APPOINTMENT_REMINDER
   APPOINTMENT_CONFIRMED
@@ -672,52 +673,6 @@ enum NotificationType {
   SYSTEM
 }
 
-// ─────────────────────────────────────────────
-// REVIEWS
-// ─────────────────────────────────────────────
-model Review {
-  id            String    @id @default(cuid())
-  patientId     String
-  doctorId      String
-  appointmentId String    @unique
-  rating        Int
-  comment       String?   @db.Text
-  tags          String[]
-  isAnonymous   Boolean   @default(false)
-  isVerified    Boolean   @default(true)
-  response      String?   @db.Text
-  respondedAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  patient     User          @relation(fields: [patientId], references: [id])
-  doctor      DoctorProfile @relation(fields: [doctorId], references: [id])
-  appointment Appointment   @relation(fields: [appointmentId], references: [id])
-}
-
-// ─────────────────────────────────────────────
-// MEDICAL DOCUMENTS
-// ─────────────────────────────────────────────
-model MedicalDocument {
-  id           String    @id @default(cuid())
-  userId       String
-  title        String
-  type         DocType
-  fileUrl      String
-  fileSize     Int?
-  mimeType     String?
-  description  String?
-  tags         String[]
-  isShared     Boolean   @default(false)
-  sharedWith   String[]
-  uploadedById String?
-  date         DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 enum DocType {
   PRESCRIPTION
   LAB_REPORT
@@ -728,24 +683,4 @@ enum DocType {
   INSURANCE
   CONSENT
   OTHER
-}
-
-// ─────────────────────────────────────────────
-// AUDIT & COMPLIANCE
-// ─────────────────────────────────────────────
-model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String
-  action     String
-  resource   String
-  resourceId String?
-  details    Json?
-  ipAddress  String?
-  userAgent  String?
-  timestamp  DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@index([userId, timestamp])
-  @@index([resource, resourceId])
 }

@@ -2,21 +2,22 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Heart, Loader2, Mail, Lock } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function LoginForm() {
-  const router = useRouter();
+  const router       = useRouter();
   const searchParams = useSearchParams();
 
-  const [email, setEmail] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showPw,   setShowPw]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
 
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  // Honour any ?callbackUrl= from middleware redirects
+  const callbackUrl = searchParams.get("callbackUrl") || null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,25 +27,45 @@ export default function LoginForm() {
       email,
       password,
       redirect: false,
-      callbackUrl,
     });
 
-    setLoading(false);
-
     if (res?.error) {
+      setLoading(false);
       toast.error("Invalid email or password");
       return;
     }
 
     if (res?.ok) {
+      // Read the freshly-created session to get the role NextAuth stored in JWT
+      const session = await getSession();
+      const role    = (session?.user as { role?: string })?.role ?? "PATIENT";
+
       toast.success("Welcome back!");
-      router.push(callbackUrl);
+
+      if (callbackUrl) {
+        router.push(callbackUrl);
+      } else if (role === "DOCTOR") {
+        router.push("/doctor-portal");
+      } else if (role === "ADMIN") {
+        router.push("/admin");
+      } else {
+        router.push("/dashboard");
+      }
+
       router.refresh();
     }
+
+    setLoading(false);
   }
 
   async function handleGoogle() {
-    await signIn("google", { callbackUrl });
+    // For OAuth we can't know the role before redirect, so NextAuth will land
+    // on the default. After the signIn callback runs we redirect in authOptions
+    // pages.newUser or via a post-login redirect page if needed.
+    // For now mirror the same pattern: signIn then let the server redirect.
+    await signIn("google", {
+      callbackUrl: callbackUrl ?? "/auth/redirect", // /auth/redirect handles role routing
+    });
   }
 
   return (
@@ -74,7 +95,7 @@ export default function LoginForm() {
           <h1 className="text-xl font-display font-bold text-primary mb-1">Welcome back</h1>
           <p className="text-sm text-muted mb-6">Sign in to your health dashboard</p>
 
-          {/* Google Button */}
+          {/* Google */}
           <button
             onClick={handleGoogle}
             className="btn-ghost w-full flex items-center justify-center gap-2 mb-4"
@@ -129,14 +150,15 @@ export default function LoginForm() {
             </div>
 
             <div className="flex justify-end">
-              <Link href="/auth/forgot-password" className="text-xs text-brand-400 hover:text-brand-300 transition-colors font-display">
+              <Link href="/auth/forgot-password"
+                    className="text-xs text-brand-400 hover:text-brand-300 transition-colors font-display">
                 Forgot password?
               </Link>
             </div>
 
-            <button 
-              type="submit" 
-              disabled={loading} 
+            <button
+              type="submit"
+              disabled={loading}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -146,7 +168,8 @@ export default function LoginForm() {
 
           <p className="text-center text-sm text-muted mt-6">
             New to VitaConnect?{" "}
-            <Link href="/auth/register" className="text-brand-400 hover:text-brand-300 font-display font-semibold transition-colors">
+            <Link href="/auth/register"
+                  className="text-brand-400 hover:text-brand-300 font-display font-semibold transition-colors">
               Create account
             </Link>
           </p>

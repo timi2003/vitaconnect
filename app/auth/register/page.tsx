@@ -54,7 +54,7 @@ export default function RegisterPage() {
 
       // Role-based redirect - FIXED
       if (form.role === "DOCTOR") {
-        router.push("/doctor/dashboard");
+        router.push("/doctor-portal");
       } else {
         router.push("/dashboard");
       }

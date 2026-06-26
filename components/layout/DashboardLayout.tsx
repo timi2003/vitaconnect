@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -9,26 +9,89 @@ import {
   ChevronRight, Heart, Pill, TestTube2, Video, LogOut,
   Zap,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/dashboard",      icon: LayoutDashboard, label: "Dashboard",      badge: null },
-  { href: "/appointments",   icon: Calendar,        label: "Appointments",   badge: "2" },
-  { href: "/health-data",    icon: Activity,        label: "Health Data",    badge: null },
-  { href: "/doctors",        icon: Users,           label: "Find Doctors",   badge: null },
-  { href: "/messages",       icon: MessageSquare,   label: "Messages",       badge: "5" },
-  { href: "/prescriptions",  icon: Pill,            label: "Prescriptions",  badge: null },
-  { href: "/lab-results",    icon: TestTube2,       label: "Lab Results",    badge: "1" },
-  { href: "/video",          icon: Video,           label: "Video Consult",  badge: null },
-  { href: "/records",        icon: FileText,        label: "Medical Records",badge: null },
-  { href: "/profile",        icon: Settings,        label: "Settings",       badge: null },
+  { href: "/dashboard",     icon: LayoutDashboard, label: "Dashboard",       badge: null },
+  { href: "/appointments",  icon: Calendar,        label: "Appointments",    badge: "2"  },
+  { href: "/health-data",   icon: Activity,        label: "Health Data",     badge: null },
+  { href: "/doctors",       icon: Users,           label: "Find Doctors",    badge: null },
+  { href: "/messages",      icon: MessageSquare,   label: "Messages",        badge: "5"  },
+  { href: "/prescriptions", icon: Pill,            label: "Prescriptions",   badge: null },
+  { href: "/lab-results",   icon: TestTube2,       label: "Lab Results",     badge: "1"  },
+  { href: "/video",         icon: Video,           label: "Video Consult",   badge: null },
+  { href: "/records",       icon: FileText,        label: "Medical Records", badge: null },
+  { href: "/profile",       icon: Settings,        label: "Settings",        badge: null },
 ];
+
+type UserSnippet = {
+  name:  string;
+  email: string;
+  image: string | null;
+  role:  string;
+};
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 interface Props { children: React.ReactNode }
 
 export function DashboardLayout({ children }: Props) {
-  const pathname = usePathname();
+  const pathname    = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState<UserSnippet | null>(null);
+
+  useEffect(() => {
+    fetch("/api/user/profile")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.user) {
+          setUser({
+            name:  data.user.name  ?? "User",
+            email: data.user.email ?? "",
+            image: data.user.image ?? null,
+            role:  data.user.role  ?? "PATIENT",
+          });
+        }
+      })
+      .catch(() => null);
+  }, []);
+
+  const initials    = user ? getInitials(user.name) : "…";
+  const displayName = user?.name  ?? "Loading…";
+  const displaySub  = user?.email ?? "";
+
+  const UserCard = () => (
+    <div className="mx-4 mt-4 p-3 rounded-xl bg-surface-800/50 border border-subtle flex items-center gap-3">
+      {user?.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={user.image}
+          alt={user.name}
+          className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
+        />
+      ) : (
+        <div className="w-10 h-10 rounded-xl bg-brand-600/30 border border-brand-500/30
+                        flex items-center justify-center flex-shrink-0">
+          <span className="text-brand-400 font-display font-bold text-sm">{initials}</span>
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="text-sm font-display font-semibold text-primary truncate">{displayName}</p>
+        <p className="text-xs text-muted truncate">{displaySub}</p>
+      </div>
+      <Link href="/profile">
+        <ChevronRight className="w-4 h-4 text-muted flex-shrink-0 ml-auto" />
+      </Link>
+    </div>
+  );
 
   const Sidebar = () => (
     <aside className={cn(
@@ -57,18 +120,7 @@ export function DashboardLayout({ children }: Props) {
         </button>
       </div>
 
-      {/* User card */}
-      <div className="mx-4 mt-4 p-3 rounded-xl bg-surface-800/50 border border-subtle flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-brand-600/30 border border-brand-500/30
-                        flex items-center justify-center flex-shrink-0">
-          <span className="text-brand-400 font-display font-bold text-sm">AJ</span>
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-display font-semibold text-primary truncate">Alex Johnson</p>
-          <p className="text-xs text-muted truncate">Patient #HC-4829</p>
-        </div>
-        <ChevronRight className="w-4 h-4 text-muted flex-shrink-0 ml-auto" />
-      </div>
+      <UserCard />
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-0.5">
@@ -126,7 +178,7 @@ export function DashboardLayout({ children }: Props) {
           </div>
           <span className="pulse-dot text-accent-green w-2 h-2" />
         </div>
-        <button className="nav-item w-full text-accent-coral hover:bg-accent-coral/10">
+        <button className="nav-item w-full text-accent-coral hover:bg-accent-coral/10" onClick={() => signOut({ callbackUrl: "/auth/login" })}>
           <LogOut className="w-4 h-4" />
           Sign Out
         </button>
@@ -136,7 +188,6 @@ export function DashboardLayout({ children }: Props) {
 
   return (
     <div className="min-h-screen bg-surface-950 bg-grid">
-      {/* Sidebar overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
@@ -146,7 +197,6 @@ export function DashboardLayout({ children }: Props) {
 
       <Sidebar />
 
-      {/* Main content */}
       <div className="lg:pl-72">
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-subtle safe-top"
@@ -159,7 +209,6 @@ export function DashboardLayout({ children }: Props) {
               <Menu className="w-5 h-5" />
             </button>
 
-            {/* Search */}
             <div className="flex-1 max-w-md relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
               <input
@@ -174,15 +223,27 @@ export function DashboardLayout({ children }: Props) {
                 <Bell className="w-5 h-5" />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent-coral" />
               </button>
-              <div className="w-8 h-8 rounded-xl bg-brand-600/30 border border-brand-500/30
-                              flex items-center justify-center cursor-pointer">
-                <span className="text-brand-400 font-display font-bold text-xs">AJ</span>
-              </div>
+
+              {/* Top-bar avatar — mirrors sidebar card */}
+              <Link href="/profile">
+                {user?.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.image}
+                    alt={user.name}
+                    className="w-8 h-8 rounded-xl object-cover cursor-pointer"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-xl bg-brand-600/30 border border-brand-500/30
+                                  flex items-center justify-center cursor-pointer">
+                    <span className="text-brand-400 font-display font-bold text-xs">{initials}</span>
+                  </div>
+                )}
+              </Link>
             </div>
           </div>
         </header>
 
-        {/* Page content */}
         <main className="px-4 lg:px-8 py-6">
           {children}
         </main>

@@ -1,45 +1,179 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
   User, Bell, Shield, Smartphone, CreditCard,
-  ChevronRight, Camera, Save, LogOut, Trash2,
-  Activity, Globe, Moon, Sun,
+  Camera, Save, LogOut, Trash2, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { id: "profile",       label: "Profile",       icon: User      },
-  { id: "notifications", label: "Notifications", icon: Bell      },
-  { id: "devices",       label: "Health Devices",icon: Smartphone },
-  { id: "security",      label: "Security",      icon: Shield    },
-  { id: "billing",       label: "Billing",       icon: CreditCard },
+  { id: "profile",       label: "Profile",        icon: User       },
+  { id: "notifications", label: "Notifications",  icon: Bell       },
+  { id: "devices",       label: "Health Devices", icon: Smartphone },
+  { id: "security",      label: "Security",       icon: Shield     },
+  { id: "billing",       label: "Billing",        icon: CreditCard },
 ];
 
+type Form = {
+  name:              string;
+  email:             string;
+  phone:             string;
+  dateOfBirth:       string;
+  gender:            string;
+  bloodType:         string;
+  height:            string;
+  weight:            string;
+  allergies:         string;
+  chronicConditions: string;
+  emergencyName:     string;
+  emergencyPhone:    string;
+  emergencyRel:      string;
+};
+
+const EMPTY_FORM: Form = {
+  name: "", email: "", phone: "", dateOfBirth: "",
+  gender: "", bloodType: "", height: "", weight: "",
+  allergies: "", chronicConditions: "",
+  emergencyName: "", emergencyPhone: "", emergencyRel: "",
+};
+
 export default function ProfilePage() {
-  const [tab, setTab] = useState("profile");
-  const [saving, setSaving] = useState(false);
+  const [tab, setTab]       = useState("profile");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [form, setForm]       = useState<Form>(EMPTY_FORM);
 
-  const [form, setForm] = useState({
-    name: "Alex Johnson", email: "patient@vitaconnect.health",
-    phone: "+1-555-0100", dateOfBirth: "1990-03-15",
-    gender: "MALE", bloodType: "O_POSITIVE",
-    height: "178", weight: "73.2",
-    allergies: "Penicillin, Shellfish",
-    chronicConditions: "Hypertension, Prediabetes",
-    emergencyName: "Jamie Johnson", emergencyPhone: "+1-555-0200",
-    emergencyRel: "Spouse",
-  });
+  // ── Fetch real user data on mount ──────────────────────────────────────────
+  useEffect(() => {
+    async function fetchProfile() {
+      try {
+        const res = await fetch("/api/user/profile");
+        if (!res.ok) {
+          const { error: msg } = await res.json();
+          setError(msg ?? "Failed to load profile");
+          return;
+        }
+        const { user } = await res.json();
 
-  function update(k: string, v: string) {
+        // emergencyContact is stored as JSON: { name, phone, relationship }
+        const ec = user.emergencyContact as {
+          name?: string; phone?: string; relationship?: string;
+        } | null;
+
+        setForm({
+          name:              user.name              ?? "",
+          email:             user.email             ?? "",
+          phone:             user.phone             ?? "",
+          // dateOfBirth comes back as ISO string; keep only YYYY-MM-DD for <input type="date">
+          dateOfBirth:       user.dateOfBirth
+                               ? user.dateOfBirth.slice(0, 10)
+                               : "",
+          gender:            user.gender            ?? "",
+          bloodType:         user.bloodType         ?? "",
+          height:            user.height != null    ? String(user.height) : "",
+          weight:            user.weight != null    ? String(user.weight) : "",
+          // allergies / chronicConditions are String[] in DB → join for display
+          allergies:         Array.isArray(user.allergies)
+                               ? user.allergies.join(", ")
+                               : "",
+          chronicConditions: Array.isArray(user.chronicConditions)
+                               ? user.chronicConditions.join(", ")
+                               : "",
+          emergencyName:     ec?.name         ?? "",
+          emergencyPhone:    ec?.phone        ?? "",
+          emergencyRel:      ec?.relationship ?? "",
+        });
+      } catch {
+        setError("Network error loading profile");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchProfile();
+  }, []);
+
+  function update(k: keyof Form, v: string) {
     setForm((p) => ({ ...p, [k]: v }));
   }
 
+  // ── Save to /api/user/profile → prisma.user.update ────────────────────────
   async function handleSave() {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setSaving(false);
+    setError(null);
+    setSuccess(false);
+    try {
+      const res = await fetch("/api/user/profile", {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:              form.name,
+          phone:             form.phone,
+          dateOfBirth:       form.dateOfBirth || undefined,
+          gender:            form.gender      || undefined,
+          bloodType:         form.bloodType   || undefined,
+          height:            form.height      || undefined,
+          weight:            form.weight      || undefined,
+          allergies:         form.allergies,
+          chronicConditions: form.chronicConditions,
+          emergencyName:     form.emergencyName,
+          emergencyPhone:    form.emergencyPhone,
+          emergencyRel:      form.emergencyRel,
+        }),
+      });
+
+      if (!res.ok) {
+        const { error: msg } = await res.json();
+        setError(msg ?? "Failed to save");
+        return;
+      }
+
+      // Reflect any server-side normalisation back into the form
+      const { user: updated } = await res.json();
+      const ec = updated.emergencyContact as {
+        name?: string; phone?: string; relationship?: string;
+      } | null;
+
+      setForm((p) => ({
+        ...p,
+        allergies:         Array.isArray(updated.allergies)
+                             ? updated.allergies.join(", ") : p.allergies,
+        chronicConditions: Array.isArray(updated.chronicConditions)
+                             ? updated.chronicConditions.join(", ") : p.chronicConditions,
+        emergencyName:     ec?.name         ?? p.emergencyName,
+        emergencyPhone:    ec?.phone        ?? p.emergencyPhone,
+        emergencyRel:      ec?.relationship ?? p.emergencyRel,
+      }));
+
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      setError("Network error — changes not saved");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Derive initials for the avatar
+  const initials = form.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "?";
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64 text-muted text-sm">
+          Loading profile…
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
@@ -53,6 +187,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="flex gap-6 flex-col lg:flex-row">
+
           {/* Sidebar tabs */}
           <div className="lg:w-52 flex-shrink-0">
             <div className="glass border border-subtle p-2 space-y-0.5">
@@ -74,7 +209,19 @@ export default function ProfilePage() {
           {/* Content */}
           <div className="flex-1 min-w-0 space-y-5">
 
-            {/* ── Profile tab ── */}
+            {/* Inline feedback banners */}
+            {error && (
+              <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 px-4 py-3 text-sm text-rose-400">
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="rounded-xl bg-teal-500/10 border border-teal-500/30 px-4 py-3 text-sm text-teal-400">
+                Profile updated successfully.
+              </div>
+            )}
+
+            {/* ── Profile tab ────────────────────────────────────────────── */}
             {tab === "profile" && (
               <>
                 {/* Avatar */}
@@ -83,7 +230,7 @@ export default function ProfilePage() {
                     <div className="relative">
                       <div className="w-20 h-20 rounded-2xl bg-brand-600/30 border border-brand-500/30
                                       flex items-center justify-center font-display font-bold text-3xl text-brand-300">
-                        AJ
+                        {initials}
                       </div>
                       <button className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg bg-brand-500
                                          flex items-center justify-center shadow-glow-sm">
@@ -91,7 +238,7 @@ export default function ProfilePage() {
                       </button>
                     </div>
                     <div>
-                      <h2 className="font-display font-bold text-lg text-primary">{form.name}</h2>
+                      <h2 className="font-display font-bold text-lg text-primary">{form.name || "—"}</h2>
                       <p className="text-sm text-muted">{form.email}</p>
                       <span className="badge badge-success mt-1.5">Verified Patient</span>
                     </div>
@@ -102,33 +249,51 @@ export default function ProfilePage() {
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Personal Information</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      { label: "Full Name",     key: "name",         type: "text"  },
-                      { label: "Email",          key: "email",        type: "email" },
-                      { label: "Phone",          key: "phone",        type: "tel"   },
-                      { label: "Date of Birth",  key: "dateOfBirth",  type: "date"  },
-                    ].map(({ label, key, type }) => (
+                    {(
+                      [
+                        { label: "Full Name",    key: "name",        type: "text"  },
+                        { label: "Email",         key: "email",       type: "email" },
+                        { label: "Phone",         key: "phone",       type: "tel"   },
+                        { label: "Date of Birth", key: "dateOfBirth", type: "date"  },
+                      ] as { label: string; key: keyof Form; type: string }[]
+                    ).map(({ label, key, type }) => (
                       <div key={key}>
                         <label className="text-xs text-muted font-display block mb-1.5">{label}</label>
-                        <input className="input text-sm" type={type}
-                          value={form[key as keyof typeof form]}
-                          onChange={(e) => update(key, e.target.value)} />
+                        <input
+                          className="input text-sm"
+                          type={type}
+                          // email is read-only — changing it requires a separate verified flow
+                          readOnly={key === "email"}
+                          value={form[key]}
+                          onChange={(e) => update(key, e.target.value)}
+                        />
                       </div>
                     ))}
+
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Gender</label>
-                      <select className="input text-sm" value={form.gender} onChange={(e) => update("gender", e.target.value)}>
+                      <select className="input text-sm" value={form.gender}
+                        onChange={(e) => update("gender", e.target.value)}>
+                        <option value="">— select —</option>
                         <option value="MALE">Male</option>
                         <option value="FEMALE">Female</option>
                         <option value="NON_BINARY">Non-binary</option>
                         <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
                       </select>
                     </div>
+
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Blood Type</label>
-                      <select className="input text-sm" value={form.bloodType} onChange={(e) => update("bloodType", e.target.value)}>
-                        {["A_POSITIVE","A_NEGATIVE","B_POSITIVE","B_NEGATIVE","AB_POSITIVE","AB_NEGATIVE","O_POSITIVE","O_NEGATIVE","UNKNOWN"].map((bt) => (
-                          <option key={bt} value={bt}>{bt.replace("_", " ").replace("POSITIVE","+").replace("NEGATIVE","-")}</option>
+                      <select className="input text-sm" value={form.bloodType}
+                        onChange={(e) => update("bloodType", e.target.value)}>
+                        <option value="">— select —</option>
+                        {[
+                          "A_POSITIVE","A_NEGATIVE","B_POSITIVE","B_NEGATIVE",
+                          "AB_POSITIVE","AB_NEGATIVE","O_POSITIVE","O_NEGATIVE","UNKNOWN",
+                        ].map((bt) => (
+                          <option key={bt} value={bt}>
+                            {bt.replace("_POSITIVE"," +").replace("_NEGATIVE"," -")}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -141,11 +306,13 @@ export default function ProfilePage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Height (cm)</label>
-                      <input className="input text-sm" type="number" value={form.height} onChange={(e) => update("height", e.target.value)} />
+                      <input className="input text-sm" type="number" value={form.height}
+                        onChange={(e) => update("height", e.target.value)} />
                     </div>
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Weight (kg)</label>
-                      <input className="input text-sm" type="number" value={form.weight} onChange={(e) => update("weight", e.target.value)} />
+                      <input className="input text-sm" type="number" value={form.weight}
+                        onChange={(e) => update("weight", e.target.value)} />
                     </div>
                   </div>
                 </div>
@@ -154,14 +321,19 @@ export default function ProfilePage() {
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Medical Background</h3>
                   <div>
-                    <label className="text-xs text-muted font-display block mb-1.5">Known Allergies</label>
+                    <label className="text-xs text-muted font-display block mb-1.5">
+                      Known Allergies <span className="opacity-50">(comma-separated)</span>
+                    </label>
                     <input className="input text-sm" placeholder="e.g. Penicillin, Shellfish…"
                       value={form.allergies} onChange={(e) => update("allergies", e.target.value)} />
                   </div>
                   <div>
-                    <label className="text-xs text-muted font-display block mb-1.5">Chronic Conditions</label>
+                    <label className="text-xs text-muted font-display block mb-1.5">
+                      Chronic Conditions <span className="opacity-50">(comma-separated)</span>
+                    </label>
                     <input className="input text-sm" placeholder="e.g. Hypertension, Diabetes…"
-                      value={form.chronicConditions} onChange={(e) => update("chronicConditions", e.target.value)} />
+                      value={form.chronicConditions}
+                      onChange={(e) => update("chronicConditions", e.target.value)} />
                   </div>
                 </div>
 
@@ -169,18 +341,19 @@ export default function ProfilePage() {
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Emergency Contact</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-xs text-muted font-display block mb-1.5">Name</label>
-                      <input className="input text-sm" value={form.emergencyName} onChange={(e) => update("emergencyName", e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted font-display block mb-1.5">Phone</label>
-                      <input className="input text-sm" type="tel" value={form.emergencyPhone} onChange={(e) => update("emergencyPhone", e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted font-display block mb-1.5">Relationship</label>
-                      <input className="input text-sm" value={form.emergencyRel} onChange={(e) => update("emergencyRel", e.target.value)} />
-                    </div>
+                    {(
+                      [
+                        { label: "Name",         key: "emergencyName",  type: "text" },
+                        { label: "Phone",         key: "emergencyPhone", type: "tel"  },
+                        { label: "Relationship",  key: "emergencyRel",   type: "text" },
+                      ] as { label: string; key: keyof Form; type: string }[]
+                    ).map(({ label, key, type }) => (
+                      <div key={key}>
+                        <label className="text-xs text-muted font-display block mb-1.5">{label}</label>
+                        <input className="input text-sm" type={type} value={form[key]}
+                          onChange={(e) => update(key, e.target.value)} />
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -192,19 +365,20 @@ export default function ProfilePage() {
               </>
             )}
 
-            {/* ── Notifications tab ── */}
+            {/* ── Notifications tab ──────────────────────────────────────── */}
             {tab === "notifications" && (
               <div className="glass border border-subtle p-6 space-y-5">
                 <h3 className="font-display font-bold text-primary text-sm">Notification Preferences</h3>
                 {[
-                  { label: "Appointment Reminders",  desc: "1 hour before your appointment",      checked: true  },
-                  { label: "New Messages",            desc: "When a doctor sends you a message",   checked: true  },
-                  { label: "Lab Result Ready",        desc: "When test results are available",     checked: true  },
-                  { label: "Health Alerts",           desc: "Abnormal readings from Health Connect",checked: true },
-                  { label: "Prescription Updates",    desc: "New prescriptions or refill reminders",checked: true },
-                  { label: "Marketing",               desc: "News and platform updates",           checked: false },
+                  { label: "Appointment Reminders",   desc: "1 hour before your appointment",        checked: true  },
+                  { label: "New Messages",             desc: "When a doctor sends you a message",     checked: true  },
+                  { label: "Lab Result Ready",         desc: "When test results are available",       checked: true  },
+                  { label: "Health Alerts",            desc: "Abnormal readings from Health Connect", checked: true  },
+                  { label: "Prescription Updates",     desc: "New prescriptions or refill reminders", checked: true  },
+                  { label: "Marketing",                desc: "News and platform updates",             checked: false },
                 ].map((n) => (
-                  <div key={n.label} className="flex items-center justify-between py-2 border-b border-subtle last:border-0">
+                  <div key={n.label}
+                    className="flex items-center justify-between py-2 border-b border-subtle last:border-0">
                     <div>
                       <p className="text-sm font-display font-semibold text-primary">{n.label}</p>
                       <p className="text-xs text-muted">{n.desc}</p>
@@ -223,7 +397,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* ── Devices tab ── */}
+            {/* ── Devices tab ────────────────────────────────────────────── */}
             {tab === "devices" && (
               <div className="space-y-4">
                 <div className="glass border border-subtle p-6 space-y-4">
@@ -231,25 +405,28 @@ export default function ProfilePage() {
                     <Activity className="w-4 h-4 text-teal-400" />
                     Health Connect Status
                   </h3>
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-teal-500/8 border border-teal-500/25">
+                  <div className="flex items-center justify-between p-4 rounded-xl
+                                  bg-teal-500/8 border border-teal-500/25">
                     <div>
-                      <p className="text-sm font-display font-semibold text-teal-300">Android Health Connect</p>
+                      <p className="text-sm font-display font-semibold text-teal-300">
+                        Android Health Connect
+                      </p>
                       <p className="text-xs text-muted">12 data types synced · Last sync: 3 min ago</p>
                     </div>
                     <span className="badge badge-success">Connected</span>
                   </div>
                 </div>
 
-                {/* Connected devices */}
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Connected Devices</h3>
                   {[
-                    { name: "Samsung Galaxy Watch 6", type: "Smartwatch",       icon: "⌚", connected: true,  lastSeen: "Just now" },
-                    { name: "Omron BP Monitor",        type: "Blood Pressure",   icon: "🩺", connected: true,  lastSeen: "2 hours ago" },
-                    { name: "Dexcom G7",               type: "Glucose Monitor",  icon: "🩸", connected: false, lastSeen: "3 days ago" },
+                    { name: "Samsung Galaxy Watch 6", type: "Smartwatch",      icon: "⌚", connected: true,  lastSeen: "Just now"    },
+                    { name: "Omron BP Monitor",        type: "Blood Pressure",  icon: "🩺", connected: true,  lastSeen: "2 hours ago" },
+                    { name: "Dexcom G7",               type: "Glucose Monitor", icon: "🩸", connected: false, lastSeen: "3 days ago"  },
                   ].map((d) => (
-                    <div key={d.name} className="flex items-center gap-3 p-3 rounded-xl border border-subtle
-                                                  hover:border-brand-500/25 transition-colors">
+                    <div key={d.name}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-subtle
+                                 hover:border-brand-500/25 transition-colors">
                       <span className="text-2xl">{d.icon}</span>
                       <div className="flex-1">
                         <p className="text-sm font-display font-semibold text-primary">{d.name}</p>
@@ -264,7 +441,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* ── Security tab ── */}
+            {/* ── Security tab ───────────────────────────────────────────── */}
             {tab === "security" && (
               <div className="space-y-4">
                 <div className="glass border border-subtle p-6 space-y-4">
@@ -299,12 +476,13 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* ── Billing tab ── */}
+            {/* ── Billing tab ────────────────────────────────────────────── */}
             {tab === "billing" && (
               <div className="space-y-4">
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Current Plan</h3>
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-brand-500/8 border border-brand-500/25">
+                  <div className="flex items-center justify-between p-4 rounded-xl
+                                  bg-brand-500/8 border border-brand-500/25">
                     <div>
                       <p className="font-display font-bold text-primary">Free Plan</p>
                       <p className="text-xs text-muted">3 consultations/month · Basic health sync</p>
@@ -319,7 +497,8 @@ export default function ProfilePage() {
                     { desc: "Consultation – Dr. Sarah Chen",  date: "May 28", amount: "$75.00", status: "Paid" },
                     { desc: "Consultation – Dr. Priya Patel", date: "May 20", amount: "$90.00", status: "Paid" },
                   ].map((p) => (
-                    <div key={p.desc} className="flex items-center justify-between py-2 border-b border-subtle last:border-0">
+                    <div key={p.desc}
+                      className="flex items-center justify-between py-2 border-b border-subtle last:border-0">
                       <div>
                         <p className="text-sm font-display font-medium text-secondary">{p.desc}</p>
                         <p className="text-xs text-muted">{p.date}</p>
@@ -333,6 +512,7 @@ export default function ProfilePage() {
                 </div>
               </div>
             )}
+
           </div>
         </div>
       </div>
