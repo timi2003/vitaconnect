@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
@@ -16,24 +16,19 @@ const CONSULT_TYPES = [
   { id: "CHAT",  label: "Live Chat",  icon: MessageSquare, desc: "Text-based consultation" },
 ];
 
-const TIME_SLOTS = [
-  "09:00","09:30","10:00","10:30","11:00","11:30",
-  "14:00","14:30","15:00","15:30","16:00","16:30","17:00",
-];
-
 const SYMPTOM_OPTIONS = [
   "Chest pain","Shortness of breath","Headache","Fever","Fatigue",
   "Nausea","Back pain","Joint pain","Cough","Dizziness",
   "Skin rash","High blood pressure","Diabetes management","Follow-up",
 ];
 
-function getNext14Days() {
-  return Array.from({ length: 14 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return d;
-  });
-}
+type Doctor = {
+  id: string;
+  name: string;
+  specialty: string;
+  consultationFee: number;
+  image?: string;
+};
 
 export default function BookAppointmentPage() {
   const sp = useSearchParams();
@@ -46,6 +41,41 @@ export default function BookAppointmentPage() {
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>(sp.get("doctorId") || "");
+  const [doctorsLoading, setDoctorsLoading] = useState(true);
+
+  // Fetch available doctors
+  useEffect(() => {
+    async function fetchDoctors() {
+      try {
+        const res = await fetch("/api/doctors?available=true");
+        if (res.ok) {
+          const data = await res.json();
+          setDoctors(data.doctors || []);
+          
+          // Auto-select first doctor if none selected
+          if (!selectedDoctorId && data.doctors?.length > 0) {
+            setSelectedDoctorId(data.doctors[0].id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch doctors", error);
+        toast.error("Failed to load available doctors");
+      } finally {
+        setDoctorsLoading(false);
+      }
+    }
+    fetchDoctors();
+  }, [selectedDoctorId]);
+
+  function getNext14Days() {
+    return Array.from({ length: 14 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+  }
 
   const days = getNext14Days();
 
@@ -56,7 +86,11 @@ export default function BookAppointmentPage() {
   }
 
   async function handleBook() {
-    if (!selectedDate || !selectedTime) return;
+    if (!selectedDoctorId || !selectedDate || !selectedTime) {
+      toast.error("Please select doctor, date and time");
+      return;
+    }
+
     setLoading(true);
     try {
       const [h, m] = selectedTime.split(":").map(Number);
@@ -67,7 +101,7 @@ export default function BookAppointmentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          doctorId: sp.get("doctorId") ?? "d1",
+          doctorId: selectedDoctorId,
           scheduledAt: dt.toISOString(),
           type: consultType,
           reason,
@@ -76,6 +110,7 @@ export default function BookAppointmentPage() {
       });
 
       if (!res.ok) throw new Error("Booking failed");
+      
       toast.success("Appointment booked successfully!");
       router.push("/appointments");
     } catch {
@@ -85,7 +120,7 @@ export default function BookAppointmentPage() {
     }
   }
 
-  const STEPS = ["Consult Type", "Date & Time", "Symptoms", "Confirm"];
+  const STEPS = ["Consult Type", "Doctor", "Date & Time", "Symptoms", "Confirm"];
 
   return (
     <DashboardLayout>
@@ -158,8 +193,62 @@ export default function BookAppointmentPage() {
           </div>
         )}
 
-        {/* Step 2: Date & Time */}
+        {/* New Step 2: Select Doctor */}
         {step === 2 && (
+          <div className="glass p-6 border border-subtle space-y-5">
+            <h2 className="font-display font-bold text-primary">Choose Doctor</h2>
+            
+            {doctorsLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
+              </div>
+            ) : doctors.length === 0 ? (
+              <p className="text-center text-muted py-12">No doctors available at the moment.</p>
+            ) : (
+              <div className="space-y-3">
+                {doctors.map((doc) => (
+                  <button
+                    key={doc.id}
+                    onClick={() => setSelectedDoctorId(doc.id)}
+                    className={cn(
+                      "w-full p-4 rounded-xl border text-left transition-all",
+                      selectedDoctorId === doc.id 
+                        ? "border-brand-500 bg-brand-500/10" 
+                        : "border-subtle hover:border-brand-500/30"
+                    )}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-surface-800 flex items-center justify-center text-xl font-display">
+                        {doc.name.split(" ").map(n => n[0]).join("")}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold">{doc.name}</p>
+                        <p className="text-sm text-muted">{doc.specialty}</p>
+                        <p className="text-brand-400 text-sm mt-1">${doc.consultationFee}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => setStep(1)} className="btn-ghost flex items-center gap-2">
+                <ChevronLeft className="w-4 h-4" /> Back
+              </button>
+              <button
+                onClick={() => setStep(3)}
+                disabled={!selectedDoctorId}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Date & Time (renumbered) */}
+        {step === 3 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Select date & time</h2>
 
@@ -195,7 +284,7 @@ export default function BookAppointmentPage() {
               <div>
                 <p className="text-xs text-muted font-display mb-3">Available time slots</p>
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                  {TIME_SLOTS.map((t) => (
+                  {["09:00","09:30","10:00","10:30","11:00","11:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00"].map((t) => (
                     <button key={t} onClick={() => setSelectedTime(t)}
                       className={cn(
                         "py-2 rounded-xl border text-xs font-mono font-bold transition-all duration-200",
@@ -211,11 +300,11 @@ export default function BookAppointmentPage() {
             )}
 
             <div className="flex gap-2">
-              <button onClick={() => setStep(1)} className="btn-ghost flex items-center gap-2">
+              <button onClick={() => setStep(2)} className="btn-ghost flex items-center gap-2">
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 disabled={!selectedDate || !selectedTime}
                 className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -225,10 +314,11 @@ export default function BookAppointmentPage() {
           </div>
         )}
 
-        {/* Step 3: Symptoms */}
-        {step === 3 && (
+        {/* Step 4: Symptoms */}
+        {step === 4 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Describe your symptoms</h2>
+            {/* ... same as before ... */}
             <div>
               <p className="text-xs text-muted font-display mb-3">Select all that apply</p>
               <div className="flex flex-wrap gap-2">
@@ -257,27 +347,27 @@ export default function BookAppointmentPage() {
               />
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setStep(2)} className="btn-ghost flex items-center gap-2">
+              <button onClick={() => setStep(3)} className="btn-ghost flex items-center gap-2">
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
-              <button onClick={() => setStep(4)} className="btn-primary flex-1">Continue</button>
+              <button onClick={() => setStep(5)} className="btn-primary flex-1">Continue</button>
             </div>
           </div>
         )}
 
-        {/* Step 4: Confirm */}
-        {step === 4 && (
+        {/* Step 5: Confirm */}
+        {step === 5 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Confirm appointment</h2>
 
             <div className="space-y-3">
               {[
-                { label: "Doctor",    value: "Dr. Sarah Chen – Cardiologist" },
+                { label: "Doctor",    value: doctors.find(d => d.id === selectedDoctorId)?.name ?? "" },
                 { label: "Type",      value: CONSULT_TYPES.find((t) => t.id === consultType)?.label ?? "" },
                 { label: "Date",      value: selectedDate?.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" }) ?? "" },
                 { label: "Time",      value: selectedTime ?? "" },
                 { label: "Duration",  value: "30 minutes" },
-                { label: "Fee",       value: "$75.00" },
+                { label: "Fee",       value: `$${doctors.find(d => d.id === selectedDoctorId)?.consultationFee || 75}` },
                 { label: "Symptoms",  value: symptoms.length > 0 ? symptoms.join(", ") : "None selected" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between items-start py-2 border-b border-subtle last:border-0">
@@ -294,7 +384,7 @@ export default function BookAppointmentPage() {
             </div>
 
             <div className="flex gap-2">
-              <button onClick={() => setStep(3)} className="btn-ghost flex items-center gap-2">
+              <button onClick={() => setStep(4)} className="btn-ghost flex items-center gap-2">
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
               <button onClick={handleBook} disabled={loading}

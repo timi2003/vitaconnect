@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import Link from "next/link";
 import {
@@ -11,45 +11,6 @@ import { cn } from "@/lib/utils";
 
 const TABS = ["Upcoming", "Past", "Cancelled"] as const;
 type Tab = (typeof TABS)[number];
-
-const APPOINTMENTS = [
-  {
-    id: "a1", doctor: "Dr. Sarah Chen", specialty: "Cardiology",
-    date: "Today", time: "2:30 PM", type: "VIDEO", status: "CONFIRMED",
-    avatar: "SC", avatarBg: "bg-brand-600/30 text-brand-300",
-    reason: "Follow-up on ECG results", duration: 30, fee: 75,
-  },
-  {
-    id: "a2", doctor: "Dr. Marcus Williams", specialty: "General Practice",
-    date: "Tomorrow", time: "10:00 AM", type: "VIDEO", status: "SCHEDULED",
-    avatar: "MW", avatarBg: "bg-violet-600/30 text-violet-300",
-    reason: "Annual wellness check", duration: 30, fee: 45,
-  },
-  {
-    id: "a3", doctor: "Dr. Priya Patel", specialty: "Endocrinology",
-    date: "Jun 12", time: "3:15 PM", type: "AUDIO", status: "SCHEDULED",
-    avatar: "PP", avatarBg: "bg-teal-600/30 text-teal-300",
-    reason: "Diabetes management review", duration: 45, fee: 90,
-  },
-  {
-    id: "a4", doctor: "Dr. Aisha Okafor", specialty: "Dermatology",
-    date: "May 28", time: "11:00 AM", type: "VIDEO", status: "COMPLETED",
-    avatar: "AO", avatarBg: "bg-amber-600/30 text-amber-300",
-    reason: "Skin rash consultation", duration: 20, fee: 60,
-  },
-  {
-    id: "a5", doctor: "Dr. James Lim", specialty: "Neurology",
-    date: "May 20", time: "9:00 AM", type: "CHAT", status: "COMPLETED",
-    avatar: "JL", avatarBg: "bg-rose-600/30 text-rose-300",
-    reason: "Migraine evaluation", duration: 30, fee: 110,
-  },
-  {
-    id: "a6", doctor: "Dr. Marcus Williams", specialty: "General Practice",
-    date: "May 15", time: "2:00 PM", type: "VIDEO", status: "CANCELLED",
-    avatar: "MW", avatarBg: "bg-violet-600/30 text-violet-300",
-    reason: "Routine checkup", duration: 30, fee: 45,
-  },
-];
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
   VIDEO: Video, AUDIO: Mic, CHAT: MessageSquare,
@@ -63,10 +24,73 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string; icon: React.
   IN_PROGRESS:{ label: "Live",       badge: "badge-warning", icon: AlertCircle },
 };
 
+type Appointment = {
+  id: string;
+  doctor: string;
+  specialty: string;
+  date: string;
+  time: string;
+  type: string;
+  status: string;
+  avatar: string;
+  avatarBg: string;
+  reason: string;
+  duration: number;
+  fee: number;
+};
+
 export default function AppointmentsPage() {
   const [tab, setTab] = useState<Tab>("Upcoming");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = APPOINTMENTS.filter((a) => {
+  useEffect(() => {
+    async function fetchAppointments() {
+      try {
+        const res = await fetch("/api/appointments?upcoming=true");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        
+        // Transform DB data to match UI expectations
+        const transformed = data.appointments.map((apt: any) => {
+          const scheduled = new Date(apt.scheduledAt);
+          const doctor = apt.doctor;
+          const isToday = scheduled.toDateString() === new Date().toDateString();
+          
+          return {
+            id: apt.id,
+            doctor: doctor?.name || "Unknown Doctor",
+            specialty: doctor?.doctorProfile?.specializations?.[0] || "General",
+            date: isToday ? "Today" : scheduled.toLocaleDateString("en-US", { 
+              month: "short", 
+              day: "numeric" 
+            }),
+            time: scheduled.toLocaleTimeString("en-US", { 
+              hour: "numeric", 
+              minute: "2-digit" 
+            }),
+            type: apt.type,
+            status: apt.status,
+            avatar: doctor?.name?.split(" ").map((n: string) => n[0]).join("").slice(0,2) || "DR",
+            avatarBg: "bg-brand-600/30 text-brand-300", // Simplified - can enhance later
+            reason: apt.reason || "Consultation",
+            duration: apt.duration,
+            fee: doctor?.doctorProfile?.consultationFee || 0,
+          };
+        });
+        
+        setAppointments(transformed);
+      } catch (error) {
+        console.error("Failed to fetch appointments:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchAppointments();
+  }, []);
+
+  const filtered = appointments.filter((a) => {
     if (tab === "Upcoming")  return ["CONFIRMED","SCHEDULED","IN_PROGRESS"].includes(a.status);
     if (tab === "Past")      return a.status === "COMPLETED";
     if (tab === "Cancelled") return a.status === "CANCELLED";
@@ -103,7 +127,7 @@ export default function AppointmentsPage() {
                 "ml-2 text-xs font-mono px-1.5 py-0.5 rounded-full",
                 tab === t ? "bg-white/20" : "bg-surface-700"
               )}>
-                {APPOINTMENTS.filter((a) => {
+                {appointments.filter((a) => {
                   if (t === "Upcoming")  return ["CONFIRMED","SCHEDULED","IN_PROGRESS"].includes(a.status);
                   if (t === "Past")      return a.status === "COMPLETED";
                   if (t === "Cancelled") return a.status === "CANCELLED";
@@ -116,7 +140,12 @@ export default function AppointmentsPage() {
 
         {/* List */}
         <div className="space-y-3">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="glass border border-subtle p-12 text-center">
+              <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-muted">Loading appointments...</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="glass border border-subtle p-12 text-center">
               <Calendar className="w-12 h-12 text-muted mx-auto mb-4 opacity-50" />
               <p className="font-display font-semibold text-secondary">No {tab.toLowerCase()} appointments</p>

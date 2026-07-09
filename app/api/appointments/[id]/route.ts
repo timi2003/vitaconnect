@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createServerSupabaseClient } from "@/lib/supabase";
 import { z } from "zod";
 
 const UpdateSchema = z.object({
@@ -16,29 +16,37 @@ const UpdateSchema = z.object({
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const apt = await prisma.appointment.findUnique({
-    where: { id: params.id },
-    include: {
-      doctor: {
-        select: {
-          id: true, name: true, image: true,
-          doctorProfile: { select: { specializations: true, consultationFee: true } },
-        },
-      },
-      patient:      { select: { id: true, name: true, image: true } },
-      prescriptions:{ include: { medications: true } },
-      labOrders:    { include: { tests: true } },
-      videoSession: true,
-      payment:      true,
-    },
-  });
+  const supabase = createServerSupabaseClient();
 
-  if (!apt) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { data: apt, error } = await supabase
+    .from("appointments")
+    .select(`
+      *,
+      doctor:users!doctor_id (
+        id, 
+        name, 
+        image, 
+        doctor_profile(specializations, consultation_fee)
+      ),
+      patient:users!patient_id (id, name, image),
+      prescriptions(*, medications(*)),
+      lab_orders(*, tests(*)),
+      video_session(*),
+      payment(*)
+    `)
+    .eq("id", params.id)
+    .single();
+
+  if (error || !apt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   // Auth check
-  if (apt.patientId !== session.user.id && apt.doctorId !== session.user.id) {
+  if (apt.patient_id !== session.user.id && apt.doctor_id !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -47,12 +55,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const apt = await prisma.appointment.findUnique({ where: { id: params.id } });
-  if (!apt) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const supabase = createServerSupabaseClient();
 
-  if (apt.patientId !== session.user.id && apt.doctorId !== session.user.id) {
+  // Check ownership
+  const { data: apt } = await supabase
+    .from("appointments")
+    .select("patient_id, doctor_id, scheduled_at")
+    .eq("id", params.id)
+    .single();
+
+  if (!apt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (apt.patient_id !== session.user.id && apt.doctor_id !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -60,64 +80,74 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json();
     const data = UpdateSchema.parse(body);
 
-    const updated = await prisma.appointment.update({
-      where: { id: params.id },
-      data: {
-        ...data,
-        cancelledBy:   data.status === "CANCELLED" ? session.user.id : undefined,
-        scheduledAt:   data.scheduledAt ? new Date(data.scheduledAt) : undefined,
-        followUpDate:  data.followUpDate ? new Date(data.followUpDate) : undefined,
-      },
-    });
+    const updatePayload: any = { ...data };
 
-    // Notify the other party
-    const notifyId = session.user.id === apt.patientId ? apt.doctorId : apt.patientId;
+    if (data.scheduledAt) updatePayload.scheduled_at = data.scheduledAt;
+    if (data.followUpDate) updatePayload.follow_up_date = data.followUpDate;
     if (data.status === "CANCELLED") {
-      await prisma.notification.create({
-        data: {
-          userId:  notifyId,
-          type:    "APPOINTMENT_CANCELLED",
-          title:   "Appointment Cancelled",
-          message: `An appointment on ${new Date(apt.scheduledAt).toLocaleDateString()} has been cancelled.`,
-          data: { appointmentId: apt.id, reason: data.cancelReason },
-        },
+      updatePayload.cancelled_by = session.user.id;
+    }
+
+    const { data: updated, error } = await supabase
+      .from("appointments")
+      .update(updatePayload)
+      .eq("id", params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Optional: Create notification for cancellation
+    if (data.status === "CANCELLED") {
+      const notifyId = session.user.id === apt.patient_id ? apt.doctor_id : apt.patient_id;
+      await supabase.from("notifications").insert({
+        user_id: notifyId,
+        type: "APPOINTMENT_CANCELLED",
+        title: "Appointment Cancelled",
+        message: `An appointment has been cancelled.`,
+        data: { appointment_id: params.id, reason: data.cancelReason },
       });
     }
 
-    // Audit
-    await prisma.auditLog.create({
-      data: {
-        userId:     session.user.id,
-        action:     `APPOINTMENT_${data.status ?? "UPDATED"}`,
-        resource:   "appointment",
-        resourceId: params.id,
-        details:    data,
-      },
-    });
-
     return NextResponse.json({ appointment: updated });
-  } catch (err) {
+  } catch (err: any) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
+    console.error("[appointments PATCH]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const apt = await prisma.appointment.findUnique({ where: { id: params.id } });
-  if (!apt || apt.patientId !== session.user.id) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: apt } = await supabase
+    .from("appointments")
+    .select("patient_id")
+    .eq("id", params.id)
+    .single();
+
+  if (!apt || apt.patient_id !== session.user.id) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 404 });
   }
 
-  // Soft cancel instead of delete
-  await prisma.appointment.update({
-    where: { id: params.id },
-    data: { status: "CANCELLED", cancelledBy: session.user.id },
-  });
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      status: "CANCELLED",
+      cancelled_by: session.user.id,
+    })
+    .eq("id", params.id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

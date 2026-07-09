@@ -8,9 +8,13 @@ import toast from "react-hot-toast";
 export type HCAvailability =
   | "checking" | "Available" | "NotInstalled" | "NotSupported" | "WebOnly";
 
+// NOTE: BodyTemperature intentionally removed. On Oraimo Watch 6 / 6 Pro (and
+// likely other Oraimo models) this value isn't a sensor reading at all — it's
+// pulled from local weather data inside the Oraimo app (ambient/outdoor temp),
+// not body temperature. Syncing it would mislabel weather data as health data.
 export type HCDataType =
   | "HeartRate" | "Steps" | "BloodPressure" | "BloodGlucose"
-  | "OxygenSaturation" | "BodyTemperature" | "SleepSession"
+  | "OxygenSaturation" | "SleepSession"
   | "Weight" | "ActiveCaloriesBurned" | "RespiratoryRate";
 
 export interface HCRecord {
@@ -27,7 +31,6 @@ export interface HCRecord {
   level?:          { value: number };
   weight?:         { inKilograms: number };
   energy?:         { inKilocalories: number };
-  temperature?:    { inCelsius: number };
   metadata?:       { id: string; dataOrigin?: string };
 }
 
@@ -50,7 +53,6 @@ interface HCBridge {
   readBloodPressure:       (s: string, e: string, cb: string) => void;
   readBloodGlucose:        (s: string, e: string, cb: string) => void;
   readOxygenSaturation:    (s: string, e: string, cb: string) => void;
-  readBodyTemperature:     (s: string, e: string, cb: string) => void;
   readWeight:              (s: string, e: string, cb: string) => void;
   readSleepSession:        (s: string, e: string, cb: string) => void;
   readActiveCaloriesBurned:(s: string, e: string, cb: string) => void;
@@ -108,14 +110,15 @@ function callBridge(
 }
 
 // ── Data types and their bridge methods ───────────────────────────────────────
-
+//
+// BodyTemperature removed — see note on HCDataType above. We no longer call
+// readBodyTemperature during sync or polling at all.
 const SYNC_TYPES: Array<{ type: HCDataType; method: keyof HCBridge }> = [
   { type: "HeartRate",            method: "readHeartRate"             },
   { type: "Steps",                method: "readSteps"                 },
-  { type: "BloodPressure",        method: "readBloodPressure"         },
+  { type: "BloodPressure",        method: "readBloodPressure"         }, // Oraimo: actually a 0-100 stress score, relabeled server-side as STRESS_LEVEL
   { type: "BloodGlucose",         method: "readBloodGlucose"          },
   { type: "OxygenSaturation",     method: "readOxygenSaturation"      },
-  { type: "BodyTemperature",      method: "readBodyTemperature"       },
   { type: "Weight",               method: "readWeight"                },
   { type: "SleepSession",         method: "readSleepSession"          },
   { type: "ActiveCaloriesBurned", method: "readActiveCaloriesBurned"  },
@@ -195,7 +198,7 @@ export function useHealthConnect() {
     return () => window.removeEventListener("hc-request-permissions", handlePermissionRequest);
   }, []);
 
-  // ── FIXED Request permissions ─────────────────────────────────────────────
+  // ── Request permissions ─────────────────────────────────────────────
   const requestPermissions = useCallback(async () => {
     const w = window as any;
     const bridge = w.HealthConnectAndroid as HCBridge | undefined;
@@ -230,8 +233,6 @@ export function useHealthConnect() {
       bridge.requestPermissions("[]", id);
     });
   }, [isAvailable]);
-
-  // ... rest of the file remains exactly the same ...
 
   // ── Read one data type ─────────────────────────────────────────────────────
   const readRecords = useCallback(

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createServerSupabaseClient } from "@/lib/supabase";
 
 export async function GET(
   req: NextRequest,
@@ -13,49 +13,50 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: params.id, role: "DOCTOR", isActive: true },
-    select: {
-      id: true, name: true, image: true,
-      doctorProfile: {
-        select: {
-          specializations:    true,
-          subSpecializations: true,
-          experience:         true,
-          consultationFee:    true,
-          followUpFee:        true,
-          rating:             true,
-          totalReviews:       true,
-          totalConsultations: true,
-          bio:                true,
-          languages:          true,
-          availableFor:       true,
-          hospital:           true,
-          qualifications:     true,
-          isAvailableNow:     true,
-          availabilitySlots: {
-            where: { isAvailable: true },
-            select: {
-              dayOfWeek:    true,
-              startTime:    true,
-              endTime:      true,
-              slotDuration: true,
-              specificDate: true,
-            },
-          },
-        },
-      },
-    },
-  });
+  const supabase = createServerSupabaseClient();
 
-  if (!user || !user.doctorProfile) {
+  const { data: user, error } = await supabase
+    .from("User")
+    .select(`
+      id,
+      name,
+      image,
+      doctorProfile:DoctorProfile (
+        specializations,
+        subSpecializations,
+        experience,
+        consultationFee,
+        followUpFee,
+        rating,
+        totalReviews,
+        totalConsultations,
+        bio,
+        languages,
+        availableFor,
+        hospital,
+        department,
+        qualifications,
+        isAvailableNow
+      )
+    `)
+    .eq("id", params.id)
+    .eq("role", "DOCTOR")
+    .eq("isActive", true)
+    .single();
+
+  if (error || !user || !(user as any).doctorProfile) {
+    console.error("[api/doctors/[id] GET]", error);
     return NextResponse.json({ error: "Doctor not found" }, { status: 404 });
   }
 
-  const { availabilitySlots, ...profileRest } = user.doctorProfile;
-
   return NextResponse.json({
-    doctor: { id: user.id, name: user.name, image: user.image, doctorProfile: profileRest },
-    slots: availabilitySlots,
+    doctor: {
+      id: user.id,
+      name: user.name,
+      image: user.image,
+      doctorProfile: (user as any).doctorProfile,
+    },
+    // TODO: re-add availability slots once the real table/column names are confirmed
+    slots: [],
   });
 }

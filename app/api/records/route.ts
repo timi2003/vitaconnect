@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createServerSupabaseClient } from "@/lib/supabase";
 import { z } from "zod";
 
 const CreateDocSchema = z.object({
@@ -19,63 +19,80 @@ const CreateDocSchema = z.object({
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { searchParams } = new URL(req.url);
   const type   = searchParams.get("type");
   const search = searchParams.get("search");
 
-  const docs = await prisma.medicalDocument.findMany({
-    where: {
-      userId: session.user.id,
-      ...(type ? { type: type as never } : {}),
-      ...(search ? {
-        OR: [
-          { title:       { contains: search, mode: "insensitive" } },
-          { description: { contains: search, mode: "insensitive" } },
-          { tags:        { has: search } },
-        ],
-      } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const supabase = createServerSupabaseClient();
 
-  return NextResponse.json({ documents: docs });
+  let query = supabase
+    .from("medical_documents")
+    .select("*")
+    .eq("user_id", session.user.id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (type) {
+    query = query.eq("type", type);
+  }
+
+  if (search) {
+    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,tags.cs.{${search}}`);
+  }
+
+  const { data: docs, error } = await query;
+
+  if (error) {
+    console.error("[records GET]", error);
+    return NextResponse.json({ error: "Failed to fetch records" }, { status: 500 });
+  }
+
+  return NextResponse.json({ documents: docs || [] });
 }
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   try {
     const body = await req.json();
     const data = CreateDocSchema.parse(body);
 
-    const doc = await prisma.medicalDocument.create({
-      data: {
-        userId:       session.user.id,
-        uploadedById: session.user.id,
-        title:        data.title,
-        type:         data.type,
-        fileUrl:      data.fileUrl,
-        fileSize:     data.fileSize,
-        mimeType:     data.mimeType,
-        description:  data.description,
-        tags:         data.tags,
-        isShared:     data.isShared,
-        date:         data.date ? new Date(data.date) : undefined,
-      },
-    });
+    const supabase = createServerSupabaseClient();
 
-    await prisma.auditLog.create({
-      data: {
-        userId:     session.user.id,
-        action:     "DOCUMENT_UPLOADED",
-        resource:   "medical_document",
-        resourceId: doc.id,
-        details:    { title: data.title, type: data.type },
-      },
+    const { data: doc, error } = await supabase
+      .from("medical_documents")
+      .insert({
+        user_id:        session.user.id,
+        uploaded_by_id: session.user.id,
+        title:          data.title,
+        type:           data.type,
+        file_url:       data.fileUrl,
+        file_size:      data.fileSize,
+        mime_type:      data.mimeType,
+        description:    data.description,
+        tags:           data.tags,
+        is_shared:      data.isShared,
+        date:           data.date ? new Date(data.date).toISOString() : null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Audit log
+    await supabase.from("audit_logs").insert({
+      user_id:     session.user.id,
+      action:      "DOCUMENT_UPLOADED",
+      resource:    "medical_document",
+      resource_id: doc.id,
+      details:     { title: data.title, type: data.type },
     });
 
     return NextResponse.json({ document: doc }, { status: 201 });
@@ -83,23 +100,41 @@ export async function POST(req: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
+    console.error("[records POST]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  const doc = await prisma.medicalDocument.findUnique({ where: { id } });
-  if (!doc || doc.userId !== session.user.id) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: doc } = await supabase
+    .from("medical_documents")
+    .select("user_id")
+    .eq("id", id)
+    .single();
+
+  if (!doc || doc.user_id !== session.user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await prisma.medicalDocument.delete({ where: { id } });
+  const { error } = await supabase
+    .from("medical_documents")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: "Failed to delete document" }, { status: 500 });
+  }
+
   return NextResponse.json({ success: true });
 }

@@ -2,7 +2,7 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth";
-import { prisma } from "./prisma";
+import { createServerSupabaseClient } from "./supabase";
 
 const f = createUploadthing();
 
@@ -18,15 +18,20 @@ export const ourFileRouter = {
       return { userId: session.user.id };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      // Log the upload
-      await prisma.auditLog.create({
-        data: {
-          userId:   metadata.userId,
-          action:   "FILE_UPLOADED",
-          resource: "medical_document",
-          details:  { fileName: file.name, fileSize: file.size, url: file.url },
+      const supabase = createServerSupabaseClient();
+
+      // Log the upload (Audit Log)
+      await supabase.from("audit_logs").insert({
+        user_id:   metadata.userId,
+        action:    "FILE_UPLOADED",
+        resource:  "medical_document",
+        details:   { 
+          fileName: file.name, 
+          fileSize: file.size, 
+          url: file.url 
         },
       });
+
       return { url: file.url, name: file.name, size: file.size };
     }),
 
@@ -38,10 +43,13 @@ export const ourFileRouter = {
       return { userId: session.user.id };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      await prisma.user.update({
-        where: { id: metadata.userId },
-        data: { image: file.url },
-      });
+      const supabase = createServerSupabaseClient();
+
+      await supabase
+        .from("users")
+        .update({ image: file.url })
+        .eq("id", metadata.userId);
+
       return { url: file.url };
     }),
 
@@ -57,7 +65,12 @@ export const ourFileRouter = {
       return { userId: session.user.id };
     })
     .onUploadComplete(async ({ file }) => {
-      return { url: file.url, name: file.name, size: file.size, type: file.type };
+      return { 
+        url: file.url, 
+        name: file.name, 
+        size: file.size, 
+        type: file.type 
+      };
     }),
 } satisfies FileRouter;
 

@@ -1,14 +1,11 @@
+// app/api/documents/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { DocType } from "@prisma/client";
+import { createServerSupabaseClient } from "@/lib/supabase";
+import { DocType } from "@/types"; // Adjust based on your types definition
 
-// ── Pick your storage provider ─────────────────────────────────────────────
-// OPTION A: Vercel Blob
-// import { put } from "@vercel/blob";
-
-// OPTION B: Cloudflare R2
+// ── Cloudflare R2 Setup ─────────────────────────────────────────────────────
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -20,7 +17,7 @@ const r2 = new S3Client({
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
 });
-// ──────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_MIMES = [
   "application/pdf",
@@ -66,19 +63,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const bytes     = Buffer.from(await file.arrayBuffer());
-    const safeName  = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const storagePath = `${session.user.id}/${Date.now()}-${safeName}`;
 
-    // ── OPTION A: Vercel Blob ──────────────────────────────────────────────
-    // const blob = await put(storagePath, bytes, {
-    //   access: "public",           // or "private" — public gives a direct CDN URL
-    //   contentType: file.type,
-    // });
-    // const fileUrl = blob.url;
-    // ──────────────────────────────────────────────────────────────────────
-
-    // ── OPTION B: Cloudflare R2 ───────────────────────────────────────────
+    // Upload to Cloudflare R2
     await r2.send(
       new PutObjectCommand({
         Bucket:      process.env.R2_BUCKET_NAME!,
@@ -88,19 +77,15 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    // Generate a presigned GET URL valid for 7 days
-    // (re-signed on every GET /api/documents so links stay fresh)
-    const { getSignedUrl: sign } = await import("@aws-sdk/s3-request-presigner");
-    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
-    const fileUrl = await sign(
+    // Generate presigned URL (valid for 7 days)
+    const fileUrl = await getSignedUrl(
       r2,
-      new GetObjectCommand({
+      new (await import("@aws-sdk/client-s3")).GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME!,
         Key:    storagePath,
       }),
       { expiresIn: 60 * 60 * 24 * 7 } // 7 days
     );
-    // ──────────────────────────────────────────────────────────────────────
 
     const titleOverride = (formData.get("title") as string | null)?.trim();
     const typeOverride  = formData.get("type") as DocType | null;
@@ -109,21 +94,29 @@ export async function POST(req: NextRequest) {
       ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
       : [];
 
-    const doc = await prisma.medicalDocument.create({
-      data: {
-        userId:       session.user.id,
-        title:        titleOverride || file.name.replace(/\.[^.]+$/, ""),
-        type:         typeOverride ?? inferDocType(file.type, file.name),
-        fileUrl,
-        fileSize:     file.size,
-        mimeType:     file.type,
+    const supabase = createServerSupabaseClient();
+
+    const { data: doc, error } = await supabase
+      .from("medical_documents")
+      .insert({
+        user_id:       session.user.id,
+        title:         titleOverride || file.name.replace(/\.[^.]+$/, ""),
+        type:          typeOverride ?? inferDocType(file.type, file.name),
+        file_url:      fileUrl,
+        file_size:     file.size,
+        mime_type:     file.type,
         tags,
-        uploadedById: session.user.id,
-        date:         new Date(),
-        // Store raw path so GET route can re-sign it
-        description:  storagePath,
-      },
-    });
+        uploaded_by_id: session.user.id,
+        date:          new Date().toISOString(),
+        description:   storagePath,   // Store R2 key for future re-signing
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[documents/upload]", error);
+      return NextResponse.json({ error: "Failed to save document" }, { status: 500 });
+    }
 
     return NextResponse.json({ document: doc }, { status: 201 });
   } catch (err) {

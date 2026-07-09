@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Search, Star, Video, Filter, BadgeCheck, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 const SPECIALTIES = [
   "All", "General Practice", "Cardiology", "Endocrinology", "Dermatology",
@@ -12,21 +13,69 @@ const SPECIALTIES = [
   "Gynecology", "Urology", "Ophthalmology", "ENT", "Pulmonology",
 ];
 
-const DOCTORS = [
-  { id:"d1", name:"Dr. Sarah Chen",        specialty:"Cardiology",       rating:4.9, reviews:312, exp:14, fee:75,  available:true,  avatar:"SC", gradient:"from-brand-600/20 to-brand-700/10",   avatarBg:"bg-brand-600/30 text-brand-300",   tags:["Heart Disease","Hypertension","Arrhythmia"],   langs:["English","Mandarin"], nextSlot:"Today 2:30 PM" },
-  { id:"d2", name:"Dr. Marcus Williams",   specialty:"General Practice", rating:4.8, reviews:521, exp:9,  fee:45,  available:true,  avatar:"MW", gradient:"from-violet-600/20 to-violet-700/10", avatarBg:"bg-violet-600/30 text-violet-300", tags:["Primary Care","Wellness","Preventive"],        langs:["English"],           nextSlot:"Today 4:00 PM" },
-  { id:"d3", name:"Dr. Priya Patel",       specialty:"Endocrinology",    rating:4.9, reviews:198, exp:11, fee:90,  available:false, avatar:"PP", gradient:"from-teal-600/20 to-teal-700/10",     avatarBg:"bg-teal-600/30 text-teal-300",     tags:["Diabetes","Thyroid","Hormonal"],               langs:["English","Hindi"],    nextSlot:"Tomorrow 9:00 AM" },
-  { id:"d4", name:"Dr. Aisha Okafor",      specialty:"Dermatology",      rating:4.7, reviews:445, exp:7,  fee:60,  available:true,  avatar:"AO", gradient:"from-amber-600/20 to-amber-700/10",   avatarBg:"bg-amber-600/30 text-amber-300",   tags:["Acne","Psoriasis","Cosmetic"],                 langs:["English","Yoruba"],   nextSlot:"Today 5:15 PM" },
-  { id:"d5", name:"Dr. James Lim",         specialty:"Neurology",        rating:4.8, reviews:267, exp:15, fee:110, available:false, avatar:"JL", gradient:"from-rose-600/20 to-rose-700/10",     avatarBg:"bg-rose-600/30 text-rose-300",     tags:["Migraines","Epilepsy","Stroke"],               langs:["English","Korean"],   nextSlot:"Jun 8, 10:00 AM" },
-  { id:"d6", name:"Dr. Fatima Al-Hassan",  specialty:"Psychiatry",       rating:4.9, reviews:389, exp:12, fee:85,  available:true,  avatar:"FA", gradient:"from-indigo-600/20 to-indigo-700/10", avatarBg:"bg-indigo-600/30 text-indigo-300", tags:["Anxiety","Depression","ADHD"],                 langs:["English","Arabic"],   nextSlot:"Today 3:00 PM" },
-];
+type Doctor = {
+  id: string;
+  name: string;
+  specialty: string;
+  rating: number;
+  reviews: number;
+  exp: number;
+  fee: number;
+  available: boolean;
+  avatar: string;
+  avatarBg: string;
+  tags: string[];
+  langs: string[];
+  nextSlot?: string;
+  gradient?: string;
+};
 
 export default function DoctorsPage() {
   const [search, setSearch] = useState("");
   const [activeSpec, setActiveSpec] = useState("All");
   const [sortBy, setSortBy] = useState<"rating" | "fee" | "experience">("rating");
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = DOCTORS
+  // Fetch real doctors
+  useEffect(() => {
+    async function fetchDoctors() {
+      try {
+        const res = await fetch("/api/doctors");
+        if (!res.ok) throw new Error("Failed to fetch doctors");
+        
+        const data = await res.json();
+        
+        const transformed = (data.doctors || []).map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          specialty: d.doctorProfile?.specializations?.[0] || "General Practice",
+          rating: d.doctorProfile?.rating || 4.5,
+          reviews: d.doctorProfile?.totalReviews || 0,
+          exp: d.doctorProfile?.experience || 5,
+          fee: d.doctorProfile?.consultationFee || 75,
+          available: d.doctorProfile?.isAvailableNow || false,
+          avatar: d.name?.split(" ").map((n: string) => n[0]).join("").slice(0,2) || "DR",
+          avatarBg: "bg-brand-600/30 text-brand-300",
+          tags: d.doctorProfile?.specializations?.slice(0, 3) || [],
+          langs: d.doctorProfile?.languages || ["English"],
+          nextSlot: "Check availability",
+          gradient: "from-brand-600/20 to-brand-700/10",
+        }));
+
+        setDoctors(transformed);
+      } catch (error) {
+        console.error(error);
+        toast.error("Failed to load doctors");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDoctors();
+  }, []);
+
+  const filtered = doctors
     .filter((d) =>
       (activeSpec === "All" || d.specialty === activeSpec) &&
       (search === "" ||
@@ -47,15 +96,19 @@ export default function DoctorsPage() {
         {/* Header */}
         <div>
           <h1 className="text-2xl font-display font-bold text-primary">Find a Doctor</h1>
-          <p className="text-sm text-muted mt-0.5">Book a consultation with 2,400+ verified specialists</p>
+          <p className="text-sm text-muted mt-0.5">Book a consultation with verified specialists</p>
         </div>
 
         {/* Search + Sort */}
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input className="input pl-10" placeholder="Search doctors, specialties, conditions…"
-              value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input 
+              className="input pl-10" 
+              placeholder="Search doctors, specialties, conditions…" 
+              value={search} 
+              onChange={(e) => setSearch(e.target.value)} 
+            />
           </div>
           <select
             className="input w-auto text-sm"
@@ -87,10 +140,19 @@ export default function DoctorsPage() {
           ))}
         </div>
 
+        {/* Loading State */}
+        {loading && (
+          <div className="flex justify-center py-12">
+            <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
         {/* Results count */}
-        <p className="text-xs text-muted font-mono">
-          {filtered.length} doctor{filtered.length !== 1 ? "s" : ""} found
-        </p>
+        {!loading && (
+          <p className="text-xs text-muted font-mono">
+            {filtered.length} doctor{filtered.length !== 1 ? "s" : ""} found
+          </p>
+        )}
 
         {/* Doctor cards */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -168,6 +230,12 @@ export default function DoctorsPage() {
             </div>
           ))}
         </div>
+
+        {!loading && filtered.length === 0 && (
+          <div className="text-center py-12 text-muted">
+            No doctors found matching your criteria.
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

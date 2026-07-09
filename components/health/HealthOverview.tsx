@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Heart, Droplets, Wind, Thermometer,
+  Heart, Droplets, Wind, Brain,
   Activity, Moon, Scale, Flame, RefreshCw,
 } from "lucide-react";
 
@@ -24,7 +24,15 @@ interface MetricState {
 }
 
 // ── Metric definitions (no dummy values) ─────────────────────────────────────
-
+//
+// NOTE on Oraimo Watch 6 / 6 Pro:
+// - The "Blood Pressure" card has been replaced with "Stress Level". The
+//   watch has no BP sensor — its on-watch "Pressure" screen is a 0–100 score
+//   with a qualitative label ("Moderate" etc.), i.e. a stress score. The sync
+//   route now stores this under STRESS_LEVEL, so this card reads that type.
+// - The "Body Temperature" card has been removed entirely. That value was
+//   pulled from local weather data inside the Oraimo app (ambient/outdoor
+//   temp), not a body temperature sensor — it carried no real health signal.
 const METRIC_DEFS = [
   {
     id: "hr",
@@ -43,21 +51,24 @@ const METRIC_DEFS = [
     formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Normal"),
   },
   {
-    id: "bp",
-    apiType: "BLOOD_PRESSURE",
-    label: "Blood Pressure",
-    unit: "mmHg",
-    icon: Activity,
+    id: "stress",
+    apiType: "STRESS_LEVEL",
+    label: "Stress Level",
+    unit: "",
+    icon: Brain,
     gradient: "from-blue-500/20 to-cyan-500/10",
     border: "border-blue-500/20",
     iconColor: "text-blue-400",
     progressColor: "bg-blue-400",
-    range: "<120/80",
-    calcProgress: (v: number) => Math.min(100, Math.max(0, (v / 120) * 100)),
-    // value = systolic, value2 = diastolic
-    formatValue: (v: number, m?: HealthMetric) =>
-      m?.value2 != null ? `${Math.round(v)}/${Math.round(m.value2)}` : String(Math.round(v)),
-    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ High" : "Optimal"),
+    range: "0–100",
+    calcProgress: (v: number) => Math.min(100, Math.max(0, v)),
+    formatValue: (v: number) => String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => {
+      if (m.isAbnormal)   return "⚠ High";
+      if (m.value >= 60)  return "Moderate";
+      if (m.value >= 30)  return "Mild";
+      return "Relaxed";
+    },
   },
   {
     id: "o2",
@@ -88,21 +99,6 @@ const METRIC_DEFS = [
     calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 70) / 56) * 100)),
     formatValue: (v: number) => String(Math.round(v)),
     formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Fasting OK"),
-  },
-  {
-    id: "temp",
-    apiType: "BODY_TEMPERATURE",
-    label: "Temperature",
-    unit: "°C",
-    icon: Thermometer,
-    gradient: "from-violet-500/20 to-purple-500/10",
-    border: "border-violet-500/20",
-    iconColor: "text-violet-400",
-    progressColor: "bg-violet-400",
-    range: "36.1–37.2",
-    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 36.1) / 1.1) * 100)),
-    formatValue: (v: number) => v.toFixed(1),
-    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Abnormal" : "Normal"),
   },
   {
     id: "sleep",
@@ -164,7 +160,7 @@ const METRIC_DEFS = [
   },
 ] as const;
 
-// ── Fetch helper ──────────────────────────────────────────────────────────────
+// ── Fetch helpers ──────────────────────────────────────────────────────────────
 
 async function fetchLatestMetric(apiType: string): Promise<HealthMetric | null> {
   try {
@@ -176,6 +172,33 @@ async function fetchLatestMetric(apiType: string): Promise<HealthMetric | null> 
     const { metrics } = (await res.json()) as { metrics: HealthMetric[] };
     // API returns desc order → index 0 is the most recent
     return metrics?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Fallback for the Weight card — used only when Health Connect has no synced
+// WEIGHT reading yet. Pulls the manually-entered value from the user's profile
+// (User.weight) and reshapes it into the same HealthMetric shape so it flows
+// through the exact same render/format logic as a synced metric.
+async function fetchProfileWeight(): Promise<HealthMetric | null> {
+  try {
+    const res = await fetch("/api/profile", { cache: "no-store" });
+    if (!res.ok) return null;
+    const { user } = (await res.json()) as {
+      user: { weight: number | null };
+    };
+    if (user?.weight == null) return null;
+
+    return {
+      id: "profile-weight",
+      type: "WEIGHT",
+      value: user.weight,
+      value2: null,
+      unit: "kg",
+      recordedAt: new Date().toISOString(),
+      isAbnormal: false,
+    };
   } catch {
     return null;
   }
@@ -203,7 +226,14 @@ export function HealthOverview() {
 
     await Promise.allSettled(
       METRIC_DEFS.map(async (def) => {
-        const metric = await fetchLatestMetric(def.apiType);
+        let metric = await fetchLatestMetric(def.apiType);
+
+        // Weight-specific fallback: if Health Connect has no synced reading,
+        // use the value the user entered on their profile instead.
+        if (def.id === "weight" && !metric) {
+          metric = await fetchProfileWeight();
+        }
+
         setStates((prev) => ({
           ...prev,
           [def.id]: { loading: false, metric },

@@ -1,194 +1,269 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import Link from "next/link";
 import {
-  ArrowLeft, Video, Calendar, Clock, FileText,
-  Pill, TestTube2, Star, MessageSquare, Download,
-  CheckCircle2, XCircle, AlertTriangle, BadgeCheck,
+  Calendar, Clock, Video, Headphones, MessageSquare, ArrowLeft,
+  CheckCircle2, XCircle, AlertCircle, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
-// Mock detail data
-const MOCK = {
-  id: "a1",
-  doctor: { name: "Dr. Sarah Chen", specialty: "Cardiologist", avatar: "SC",
-            avatarBg: "bg-brand-600/30 text-brand-300", verified: true },
-  date: "June 6, 2026", time: "2:30 PM", duration: 30, type: "VIDEO",
-  status: "CONFIRMED", fee: 75,
-  reason: "Follow-up on ECG results and blood pressure management",
-  symptoms: ["Chest discomfort", "Occasional shortness of breath", "Fatigue"],
-  doctorNotes: null,
-  prescription: null,
-  roomId: "vc-demo-001",
+type AppointmentDetail = {
+  id: string;
+  scheduledAt: string;
+  duration: number;
+  type: string;
+  status: string;
+  reason?: string;
+  symptoms: string[];
+  notes?: string;
+  doctorNotes?: string;
+  doctor: {
+    id: string;
+    name: string;
+    image?: string;
+    specialty?: string;
+  };
+  patient: {
+    name: string;
+  };
+  roomId?: string;
+  payment?: {
+    amount: number;
+    status: string;
+  };
 };
 
-const STATUS_MAP: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-  CONFIRMED: { icon: CheckCircle2, color: "text-accent-green", label: "Confirmed" },
-  SCHEDULED: { icon: Calendar,     color: "text-brand-400",    label: "Scheduled" },
-  COMPLETED: { icon: CheckCircle2, color: "text-teal-400",     label: "Completed" },
-  CANCELLED: { icon: XCircle,      color: "text-rose-400",     label: "Cancelled" },
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  SCHEDULED:   { label: "Scheduled",   color: "text-blue-400", icon: Calendar },
+  CONFIRMED:   { label: "Confirmed",   color: "text-green-400", icon: CheckCircle2 },
+  IN_PROGRESS: { label: "In Progress", color: "text-accent-green", icon: AlertCircle },
+  COMPLETED:   { label: "Completed",   color: "text-teal-400", icon: CheckCircle2 },
+  CANCELLED:   { label: "Cancelled",   color: "text-red-400", icon: XCircle },
 };
 
 export default function AppointmentDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams();
   const router = useRouter();
-  const apt = MOCK; // Replace with real fetch
-  const st = STATUS_MAP[apt.status];
+  const id = params.id as string;
+
+  const [appointment, setAppointment] = useState<AppointmentDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchAppointment() {
+      try {
+        const res = await fetch(`/api/appointments/${id}`);
+        if (!res.ok) throw new Error("Failed to load appointment");
+        const data = await res.json();
+        setAppointment(data.appointment);
+      } catch (err) {
+        toast.error("Failed to load appointment details");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (id) fetchAppointment();
+  }, [id]);
+
+  const handleCancel = async () => {
+    if (!confirm("Are you sure you want to cancel this appointment?")) return;
+
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/appointments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CANCELLED" }),
+      });
+
+      if (res.ok) {
+        toast.success("Appointment cancelled successfully");
+        // Refresh data
+        const refreshed = await fetch(`/api/appointments/${id}`);
+        const data = await refreshed.json();
+        setAppointment(data.appointment);
+      } else {
+        toast.error("Failed to cancel appointment");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <Loader2 className="w-10 h-10 animate-spin text-brand-500" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!appointment) {
+    return (
+      <DashboardLayout>
+        <div className="text-center py-20">
+          <p className="text-red-400">Appointment not found</p>
+          <button onClick={() => router.push("/appointments")} className="btn-primary mt-4">
+            Back to Appointments
+          </button>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const statusInfo = STATUS_CONFIG[appointment.status] || STATUS_CONFIG.SCHEDULED;
+  const StatusIcon = statusInfo.icon;
+  const isUpcoming = ["SCHEDULED", "CONFIRMED"].includes(appointment.status);
 
   return (
     <DashboardLayout>
-      <div className="page-enter max-w-2xl mx-auto space-y-5 pb-24 lg:pb-8">
-
-        {/* Back */}
-        <button onClick={() => router.back()}
-          className="flex items-center gap-2 text-sm text-muted hover:text-primary transition-colors font-display">
-          <ArrowLeft className="w-4 h-4" /> Back to appointments
+      <div className="page-enter max-w-3xl mx-auto space-y-8 pb-12">
+        <button
+          onClick={() => router.push("/appointments")}
+          className="flex items-center gap-2 text-muted hover:text-primary transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to Appointments
         </button>
 
-        {/* Header card */}
-        <div className="glass border border-subtle p-6">
-          <div className="flex items-start gap-4">
-            <div className={cn(
-              "w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0",
-              "border border-white/10 font-display font-bold text-lg", apt.doctor.avatarBg
+        <div className="glass border border-subtle p-8 rounded-3xl">
+          <div className="flex justify-between items-start mb-8">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className={cn("w-4 h-4 rounded-full", 
+                  appointment.status === "IN_PROGRESS" ? "bg-accent-green animate-pulse" : ""
+                )} />
+                <h1 className="text-3xl font-display font-bold">Appointment Details</h1>
+              </div>
+              <p className="text-muted mt-1">ID: {appointment.id}</p>
+            </div>
+            <div className={cn("badge text-sm px-4 py-1.5 flex items-center gap-2", 
+              appointment.status === "IN_PROGRESS" ? "badge-warning" : ""
             )}>
-              {apt.doctor.avatar}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h1 className="text-lg font-display font-bold text-primary">{apt.doctor.name}</h1>
-                {apt.doctor.verified && <BadgeCheck className="w-4 h-4 text-brand-400" />}
-              </div>
-              <p className="text-sm text-muted">{apt.doctor.specialty}</p>
-              <div className="flex items-center gap-2 mt-2">
-                <st.icon className={cn("w-4 h-4", st.color)} />
-                <span className={cn("text-sm font-display font-semibold", st.color)}>{st.label}</span>
-              </div>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <p className="text-2xl font-display font-bold text-primary">${apt.fee}</p>
-              <p className="text-xs text-muted font-mono">consultation fee</p>
+              <StatusIcon className="w-4 h-4" />
+              {statusInfo.label}
             </div>
           </div>
-        </div>
 
-        {/* Details grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: "Date",     value: apt.date,              icon: Calendar },
-            { label: "Time",     value: apt.time,              icon: Clock },
-            { label: "Duration", value: `${apt.duration} min`, icon: Clock },
-            { label: "Type",     value: apt.type,              icon: Video },
-          ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="glass border border-subtle p-4 text-center">
-              <Icon className="w-4 h-4 text-brand-400 mx-auto mb-2" />
-              <p className="text-xs text-muted font-display">{label}</p>
-              <p className="text-sm font-display font-bold text-primary mt-0.5">{value}</p>
-            </div>
-          ))}
-        </div>
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Doctor Info */}
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-muted mb-2">With</p>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-surface-800 flex items-center justify-center text-2xl font-display border border-white/10">
+                    {appointment.doctor.name.split(" ").map(n => n[0]).join("")}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-xl">{appointment.doctor.name}</p>
+                    <p className="text-muted">{appointment.doctor.specialty}</p>
+                  </div>
+                </div>
+              </div>
 
-        {/* Reason & symptoms */}
-        <div className="glass border border-subtle p-5 space-y-4">
-          <h2 className="text-sm font-display font-bold text-primary">Consultation Details</h2>
-          <div>
-            <p className="text-xs text-muted font-display mb-1">Reason for visit</p>
-            <p className="text-sm text-secondary">{apt.reason}</p>
-          </div>
-          {apt.symptoms.length > 0 && (
-            <div>
-              <p className="text-xs text-muted font-display mb-2">Reported symptoms</p>
-              <div className="flex flex-wrap gap-1.5">
-                {apt.symptoms.map((s) => (
-                  <span key={s} className="badge badge-info text-xs">{s}</span>
-                ))}
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Calendar className="w-5 h-5 text-muted" />
+                  <div>
+                    <p className="font-medium">Date</p>
+                    <p className="text-lg">
+                      {new Date(appointment.scheduledAt).toLocaleDateString("en-US", {
+                        weekday: "long", month: "long", day: "numeric"
+                      })}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-muted" />
+                  <div>
+                    <p className="font-medium">Time</p>
+                    <p className="text-lg">
+                      {new Date(appointment.scheduledAt).toLocaleTimeString("en-US", {
+                        hour: "numeric", minute: "2-digit"
+                      })}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Doctor notes (post-consult) */}
-        {apt.doctorNotes && (
-          <div className="glass border border-teal-500/25 p-5 bg-teal-500/5">
-            <h2 className="text-sm font-display font-bold text-primary mb-3 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-teal-400" /> Doctor&apos;s Notes
-            </h2>
-            <p className="text-sm text-secondary">{apt.doctorNotes}</p>
-          </div>
-        )}
+            {/* Consultation Info */}
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-muted mb-3">Consultation</p>
+                <div className="flex items-center gap-3 p-4 bg-surface-900 rounded-2xl">
+                  {appointment.type === "VIDEO" && <Video className="w-8 h-8" />}
+                  {appointment.type === "AUDIO" && <Headphones className="w-8 h-8" />}
+                  {appointment.type === "CHAT" && <MessageSquare className="w-8 h-8" />}
+                  <div>
+                    <p className="font-semibold">{appointment.type} Consultation</p>
+                    <p className="text-sm text-muted">{appointment.duration} minutes</p>
+                  </div>
+                </div>
+              </div>
 
-        {/* Warning for upcoming */}
-        {apt.status === "CONFIRMED" && (
-          <div className="glass border border-amber-500/25 p-4 bg-amber-500/5 flex gap-3">
-            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-display font-semibold text-amber-300">Appointment today</p>
-              <p className="text-xs text-muted mt-0.5">
-                Join 5 minutes early. Make sure your camera and microphone are working.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {apt.status === "CONFIRMED" && (
-            <Link href={`/video?room=${apt.roomId}`}
-              className="btn-primary flex-1 flex items-center justify-center gap-2">
-              <Video className="w-4 h-4" /> Join Video Call
-            </Link>
-          )}
-          <Link href={`/messages?doctorId=${apt.doctor.name}`}
-            className="btn-ghost flex-1 flex items-center justify-center gap-2">
-            <MessageSquare className="w-4 h-4" /> Message Doctor
-          </Link>
-          {apt.status === "COMPLETED" && (
-            <button className="btn-ghost flex items-center justify-center gap-2">
-              <Download className="w-4 h-4" /> Download Summary
-            </button>
-          )}
-        </div>
-
-        {/* Post-consult actions */}
-        {apt.status === "COMPLETED" && (
-          <div className="grid grid-cols-2 gap-3">
-            <Link href={`/prescriptions?aptId=${apt.id}`}
-              className="glass border border-subtle p-4 text-center hover:border-brand-500/30 transition-colors">
-              <Pill className="w-5 h-5 text-violet-400 mx-auto mb-2" />
-              <p className="text-sm font-display font-semibold text-primary">Prescriptions</p>
-              <p className="text-xs text-muted">View issued medications</p>
-            </Link>
-            <Link href={`/lab-results?aptId=${apt.id}`}
-              className="glass border border-subtle p-4 text-center hover:border-brand-500/30 transition-colors">
-              <TestTube2 className="w-5 h-5 text-teal-400 mx-auto mb-2" />
-              <p className="text-sm font-display font-semibold text-primary">Lab Orders</p>
-              <p className="text-xs text-muted">View test orders</p>
-            </Link>
-          </div>
-        )}
-
-        {/* Review (completed only) */}
-        {apt.status === "COMPLETED" && (
-          <div className="glass border border-amber-500/20 p-5 bg-amber-500/5">
-            <h2 className="text-sm font-display font-bold text-primary mb-3 flex items-center gap-2">
-              <Star className="w-4 h-4 text-amber-400" /> Rate your experience
-            </h2>
-            <div className="flex gap-2 mb-3">
-              {[1,2,3,4,5].map((n) => (
-                <button key={n} className="text-amber-400 hover:scale-110 transition-transform">
-                  <Star className="w-6 h-6 hover:fill-amber-400" />
+              {appointment.roomId && isUpcoming && (
+                <button 
+                  onClick={() => router.push(`/video?room=${appointment.roomId}`)}
+                  className="btn-primary w-full py-4 text-lg flex items-center justify-center gap-3"
+                >
+                  <Video className="w-6 h-6" />
+                  Join Video Call
                 </button>
-              ))}
+              )}
             </div>
-            <textarea
-              className="input min-h-[80px] resize-none text-sm"
-              placeholder="Share your experience (optional)…"
-            />
-            <button className="btn-primary mt-3 text-sm">Submit Review</button>
           </div>
-        )}
+
+          {/* Reason & Symptoms */}
+          {(appointment.reason || appointment.symptoms?.length > 0) && (
+            <div className="mt-10 pt-8 border-t border-subtle">
+              <h3 className="font-display font-semibold mb-4">Reason for Visit</h3>
+              <p className="text-secondary leading-relaxed">{appointment.reason}</p>
+
+              {appointment.symptoms?.length > 0 && (
+                <div className="mt-6">
+                  <p className="text-xs text-muted mb-3">Symptoms</p>
+                  <div className="flex flex-wrap gap-2">
+                    {appointment.symptoms.map((symptom, i) => (
+                      <span key={i} className="px-4 py-1.5 bg-surface-900 rounded-xl text-sm">
+                        {symptom}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="mt-10 flex gap-3">
+            {isUpcoming && (
+              <button
+                onClick={handleCancel}
+                disabled={actionLoading}
+                className="btn-ghost flex-1 text-red-400 hover:bg-red-500/10"
+              >
+                {actionLoading ? "Cancelling..." : "Cancel Appointment"}
+              </button>
+            )}
+            <button
+              onClick={() => router.push("/appointments")}
+              className="btn-primary flex-1"
+            >
+              Back to List
+            </button>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

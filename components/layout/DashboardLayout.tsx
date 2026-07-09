@@ -49,7 +49,7 @@ export function DashboardLayout({ children }: Props) {
   const [user, setUser] = useState<UserSnippet | null>(null);
 
   useEffect(() => {
-    fetch("/api/user/profile")
+    fetch("/api/profile")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data?.user) {

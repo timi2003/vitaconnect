@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createServerSupabaseClient } from "@/lib/supabase";
 import { z } from "zod";
 
 const CreateSchema = z.object({
@@ -15,59 +15,78 @@ const CreateSchema = z.object({
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   try {
     const body = await req.json();
     const data = CreateSchema.parse(body);
 
-    // Verify the appointment belongs to the patient and is completed
-    const apt = await prisma.appointment.findUnique({
-      where: { id: data.appointmentId },
-    });
+    const supabase = createServerSupabaseClient();
+
+    // Verify appointment
+    const { data: apt } = await supabase
+      .from("appointments")
+      .select("patient_id, doctor_id, status")
+      .eq("id", data.appointmentId)
+      .single();
 
     if (!apt) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
-    if (apt.patientId !== session.user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (apt.patient_id !== session.user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (apt.status !== "COMPLETED") return NextResponse.json({ error: "Can only review completed appointments" }, { status: 400 });
 
     // Check if already reviewed
-    const existing = await prisma.review.findUnique({
-      where: { appointmentId: data.appointmentId },
-    });
+    const { data: existing } = await supabase
+      .from("reviews")
+      .select("id")
+      .eq("appointment_id", data.appointmentId)
+      .single();
+
     if (existing) return NextResponse.json({ error: "Already reviewed" }, { status: 409 });
 
-    const review = await prisma.review.create({
-      data: {
-        patientId:     session.user.id,
-        doctorId:      apt.doctorId,
-        appointmentId: data.appointmentId,
-        rating:        data.rating,
-        comment:       data.comment,
-        tags:          data.tags,
-        isAnonymous:   data.isAnonymous,
-      },
-    });
+    // Create review
+    const { data: review, error: reviewError } = await supabase
+      .from("reviews")
+      .insert({
+        patient_id:     session.user.id,
+        doctor_id:      apt.doctor_id,
+        appointment_id: data.appointmentId,
+        rating:         data.rating,
+        comment:        data.comment,
+        tags:           data.tags,
+        is_anonymous:   data.isAnonymous,
+      })
+      .select()
+      .single();
+
+    if (reviewError) throw reviewError;
 
     // Recalculate doctor's average rating
-    const agg = await prisma.review.aggregate({
-      where: { doctorId: apt.doctorId },
-      _avg: { rating: true },
-      _count: true,
-    });
+    const { data: agg } = await supabase
+      .from("reviews")
+      .select("rating")
+      .eq("doctor_id", apt.doctor_id);
 
-    await prisma.doctorProfile.update({
-      where: { userId: apt.doctorId },
-      data: {
-        rating:       Math.round((agg._avg.rating ?? 0) * 10) / 10,
-        totalReviews: agg._count,
-      },
-    });
+    if (agg && agg.length > 0) {
+      const avgRating = agg.reduce((sum, r) => sum + r.rating, 0) / agg.length;
+      const totalReviews = agg.length;
+
+      await supabase
+        .from("doctor_profiles")
+        .update({
+          rating: Math.round(avgRating * 10) / 10,
+          total_reviews: totalReviews,
+        })
+        .eq("user_id", apt.doctor_id);
+    }
 
     return NextResponse.json({ review }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
+    console.error("[reviews POST]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -77,28 +96,34 @@ export async function GET(req: NextRequest) {
   const doctorId = searchParams.get("doctorId");
   if (!doctorId) return NextResponse.json({ error: "Missing doctorId" }, { status: 400 });
 
-  const reviews = await prisma.review.findMany({
-    where: { doctorId },
-    include: {
-      patient: { select: { name: true, image: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
+  const supabase = createServerSupabaseClient();
 
-  const agg = await prisma.review.aggregate({
-    where: { doctorId },
-    _avg:   { rating: true },
-    _count: true,
-  });
+  const { data: reviews } = await supabase
+    .from("reviews")
+    .select(`
+      *,
+      patient:users(name, image)
+    `)
+    .eq("doctor_id", doctorId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  const { data: agg } = await supabase
+    .from("reviews")
+    .select("rating")
+    .eq("doctor_id", doctorId);
+
+  const averageRating = agg && agg.length > 0 
+    ? agg.reduce((sum, r) => sum + r.rating, 0) / agg.length 
+    : 0;
 
   return NextResponse.json({
-    reviews: reviews.map((r) => ({
+    reviews: (reviews || []).map((r: any) => ({
       ...r,
-      patientName: r.isAnonymous ? "Anonymous" : r.patient.name,
-      patient:     undefined,
+      patientName: r.is_anonymous ? "Anonymous" : r.patient?.name,
+      patient: undefined,
     })),
-    averageRating: agg._avg.rating,
-    totalReviews:  agg._count,
+    averageRating: Math.round(averageRating * 10) / 10,
+    totalReviews: agg?.length || 0,
   });
 }

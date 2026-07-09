@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createServerSupabaseClient } from "@/lib/supabase";
 import { z } from "zod";
 
 const MedSchema = z.object({
@@ -20,35 +20,48 @@ const MedSchema = z.object({
 });
 
 const CreateSchema = z.object({
-  patientId:    z.string(),
-  appointmentId:z.string().optional(),
-  diagnosis:    z.string().optional(),
-  notes:        z.string().optional(),
+  patientId:     z.string(),
+  appointmentId: z.string().optional(),
+  diagnosis:     z.string().optional(),
+  notes:         z.string().optional(),
   refillsAllowed: z.number().int().min(0).default(0),
-  medications:  z.array(MedSchema).min(1),
-  expiryDate:   z.string().datetime().optional(),
+  medications:   z.array(MedSchema).min(1),
+  expiryDate:    z.string().datetime().optional(),
 });
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
 
-  const prescriptions = await prisma.prescription.findMany({
-    where: {
-      patientId: session.user.id,
-      ...(status ? { status: status as never } : {}),
-    },
-    include: {
-      medications: true,
-      patient: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const supabase = createServerSupabaseClient();
 
-  return NextResponse.json({ prescriptions });
+  let query = supabase
+    .from("prescriptions")
+    .select(`
+      *,
+      medications(*),
+      patient:users(id, name)
+    `)
+    .eq("patient_id", session.user.id)
+    .order("created_at", { ascending: false });
+
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  const { data: prescriptions, error } = await query;
+
+  if (error) {
+    console.error("[prescriptions GET]", error);
+    return NextResponse.json({ error: "Failed to fetch prescriptions" }, { status: 500 });
+  }
+
+  return NextResponse.json({ prescriptions: prescriptions || [] });
 }
 
 export async function POST(req: NextRequest) {
@@ -61,29 +74,48 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = CreateSchema.parse(body);
 
-    const prescription = await prisma.prescription.create({
-      data: {
-        patientId:     data.patientId,
-        doctorId:      session.user.id,
-        appointmentId: data.appointmentId,
-        diagnosis:     data.diagnosis,
-        notes:         data.notes,
-        refillsAllowed:data.refillsAllowed,
-        expiryDate:    data.expiryDate ? new Date(data.expiryDate) : undefined,
-        medications: { createMany: { data: data.medications } },
-      },
-      include: { medications: true },
-    });
+    const supabase = createServerSupabaseClient();
+
+    // Create prescription
+    const { data: prescription, error: presError } = await supabase
+      .from("prescriptions")
+      .insert({
+        patient_id:     data.patientId,
+        doctor_id:      session.user.id,
+        appointment_id: data.appointmentId,
+        diagnosis:      data.diagnosis,
+        notes:          data.notes,
+        refills_allowed: data.refillsAllowed,
+        expiry_date:    data.expiryDate ? new Date(data.expiryDate).toISOString() : null,
+      })
+      .select()
+      .single();
+
+    if (presError || !prescription) {
+      throw presError || new Error("Failed to create prescription");
+    }
+
+    // Insert medications
+    if (data.medications.length > 0) {
+      const medsToInsert = data.medications.map(med => ({
+        prescription_id: prescription.id,
+        ...med,
+      }));
+
+      const { error: medsError } = await supabase
+        .from("prescription_items")
+        .insert(medsToInsert);
+
+      if (medsError) console.error("Failed to insert medications:", medsError);
+    }
 
     // Notify patient
-    await prisma.notification.create({
-      data: {
-        userId:  data.patientId,
-        type:    "PRESCRIPTION_READY",
-        title:   "New Prescription",
-        message: `Dr. ${session.user.name} has issued a new prescription.`,
-        data: { prescriptionId: prescription.id },
-      },
+    await supabase.from("notifications").insert({
+      user_id:  data.patientId,
+      type:     "PRESCRIPTION_READY",
+      title:    "New Prescription",
+      message:  `Dr. ${session.user.name} has issued a new prescription.`,
+      data:     { prescription_id: prescription.id },
     });
 
     return NextResponse.json({ prescription }, { status: 201 });
@@ -91,6 +123,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
+    console.error("[prescriptions POST]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

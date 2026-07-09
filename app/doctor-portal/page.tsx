@@ -45,7 +45,7 @@ export default function DoctorPortalPage() {
 
   // ── Load real availability + name from DB ──────────────────────────────────
   useEffect(() => {
-    fetch("/api/user/profile")
+    fetch("/api/profile")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data?.user) return;
