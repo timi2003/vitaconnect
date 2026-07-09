@@ -1,12 +1,1 @@
-{
-  "/auth/login/page": "app/auth/login/page.js",
-  "/doctor-portal/messages/page": "app/doctor-portal/messages/page.js",
-  "/doctor-portal/page": "app/doctor-portal/page.js",
-  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/doctors/page": "app/doctors/page.js",
-  "/appointments/new/page": "app/appointments/new/page.js",
-  "/appointments/page": "app/appointments/page.js",
-  "/api/profile/route": "app/api/profile/route.js",
-  "/api/appointments/route": "app/api/appointments/route.js",
-  "/api/doctors/route": "app/api/doctors/route.js"
-}
+{}
