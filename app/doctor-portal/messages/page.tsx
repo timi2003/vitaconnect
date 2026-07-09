@@ -6,6 +6,7 @@ import { DoctorDashboardLayout } from "@/components/layout/DoctorDasboardLayout"
 import { Send, Search, Paperclip, BadgeCheck, Smile, MoreVertical, Phone, Video, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Pusher from "pusher-js";
+import toast from "react-hot-toast";
 
 interface Message {
   id: string;
@@ -164,8 +165,16 @@ export default function DoctorMessagesPage() {
     if (!activeId && !pendingRecipient) return;
 
     const content = draft.trim();
+    const tempId = `temp-${Date.now()}`;
     setDraft("");
     setSending(true);
+
+    // Show it immediately — don't make the user wait on the round trip.
+    setMessages((prev) => [
+      ...prev,
+      { id: tempId, content, senderId: myId ?? "", createdAt: new Date().toISOString() },
+    ]);
+
     try {
       const body = activeId
         ? { conversationId: activeId, content }
@@ -184,11 +193,16 @@ export default function DoctorMessagesPage() {
         setPendingRecipient(null);
       }
 
-      setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((m) => m.id !== tempId);
+        return withoutTemp.some((m) => m.id === message.id) ? withoutTemp : [...withoutTemp, message];
+      });
       loadConversations();
     } catch (err) {
       console.error("[DoctorMessagesPage] send failed:", err);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setDraft(content); // restore draft so the user doesn't lose it
+      toast.error("Message failed to send — try again");
     } finally {
       setSending(false);
     }

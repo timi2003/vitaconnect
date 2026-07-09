@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/appointments/new/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/appointments/new/page.js"
+      "static/chunks/app/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
@@ -11,10 +11,55 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/health-data/page": [
+    "/auth/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/health-data/page.js"
+      "static/chunks/app/auth/login/page.js"
+    ],
+    "/dashboard/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/page.js"
+    ],
+    "/messages/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/messages/page.js"
+    ],
+    "/appointments/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/appointments/page.js"
+    ],
+    "/appointments/new/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/appointments/new/page.js"
+    ],
+    "/doctors/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctors/page.js"
+    ],
+    "/appointments/[id]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/appointments/[id]/page.js"
+    ],
+    "/doctor-portal/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/page.js"
+    ],
+    "/doctor-portal/messages/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/messages/page.js"
+    ],
+    "/doctor-portal/patients/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/patients/page.js"
     ]
   }
 }

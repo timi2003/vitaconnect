@@ -1,90 +1,151 @@
-// sw-custom.js — VitaConnect custom service worker additions
-// next-pwa injects Workbox before this file via importScripts
+/ VitaConnect Service Worker — full offline support
+// Handles: static cache, API cache, push notifications, background sync
 
-const CACHE_VERSION  = "v1";
-const STATIC_CACHE   = `vitaconnect-static-${CACHE_VERSION}`;
-const HEALTH_CACHE   = `vitaconnect-health-${CACHE_VERSION}`;
-const OFFLINE_URL    = "/offline";
+const CACHE_VERSION   = "v2";
+const STATIC_CACHE    = `vitaconnect-static-${CACHE_VERSION}`;
+const API_CACHE       = `vitaconnect-api-${CACHE_VERSION}`;
+const OFFLINE_PAGE    = "/offline";
 
-// ── Assets to precache on install ────────────────────────────────────────────
+// Pages to cache immediately on install
 const PRECACHE_URLS = [
   "/",
   "/dashboard",
   "/offline",
+  "/appointments",
+  "/health-data",
+  "/doctors",
+  "/prescriptions",
+  "/lab-results",
+  "/records",
+  "/messages",
   "/manifest.json",
   "/icons/icon-192x192.png",
   "/icons/icon-512x512.png",
 ];
 
+// API routes to cache with network-first (show stale when offline)
+const API_CACHE_PATTERNS = [
+  /\/api\/health-data/,
+  /\/api\/appointments/,
+  /\/api\/prescriptions/,
+  /\/api\/lab-results/,
+  /\/api\/profile/,
+  /\/api\/doctors/,
+  /\/api\/notifications/,
+];
+
+// API routes NEVER to cache (auth, payments, messages)
+const NO_CACHE_PATTERNS = [
+  /\/api\/auth/,
+  /\/api\/payments/,
+  /\/api\/messages/,
+  /\/api\/reviews/,
+];
+
 // ── Install ───────────────────────────────────────────────────────────────────
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(PRECACHE_URLS);
-    }).then(() => self.skipWaiting())
+    caches.open(STATIC_CACHE)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting())
   );
 });
 
-// ── Activate — clean old caches ───────────────────────────────────────────────
+// ── Activate — purge old caches ───────────────────────────────────────────────
 self.addEventListener("activate", (event) => {
-  const VALID = [STATIC_CACHE, HEALTH_CACHE];
+  const VALID = [STATIC_CACHE, API_CACHE];
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => !VALID.includes(k)).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((k) => !VALID.includes(k)).map((k) => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// ── Fetch — network-first for API, cache-first for assets ────────────────────
+// ── Fetch strategy ────────────────────────────────────────────────────────────
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  const { request } = event;
+  const url = new URL(request.url);
 
-  // Skip non-GET and cross-origin
-  if (event.request.method !== "GET") return;
+  // Skip non-GET
+  if (request.method !== "GET") return;
+
+  // Skip cross-origin (analytics, fonts from CDN etc.)
   if (url.origin !== self.location.origin) return;
 
-  // Health data API — network first, fallback to cache
-  if (url.pathname.startsWith("/api/health-data") ||
-      url.pathname.startsWith("/api/appointments") ||
-      url.pathname.startsWith("/api/profile")) {
-    event.respondWith(
-      fetch(event.request)
-        .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(HEALTH_CACHE).then((cache) => cache.put(event.request, clone));
-          }
-          return res;
-        })
-        .catch(() => caches.match(event.request))
-    );
+  // Never cache auth/payment routes
+  if (NO_CACHE_PATTERNS.some((p) => p.test(url.pathname))) return;
+
+  // API routes — network first, fall back to cache
+  if (API_CACHE_PATTERNS.some((p) => p.test(url.pathname))) {
+    event.respondWith(networkFirstAPI(request));
     return;
   }
 
-  // Other API routes — network only (don't cache auth, payments etc.)
-  if (url.pathname.startsWith("/api/")) return;
+  // Navigation (page loads) — network first, offline fallback
+  if (request.mode === "navigate") {
+    event.respondWith(navigationStrategy(request));
+    return;
+  }
 
   // Static assets — cache first
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
-          if (res.ok && res.type === "basic") {
-            const clone = res.clone();
-            caches.open(STATIC_CACHE).then((cache) => cache.put(event.request, clone));
-          }
-          return res;
-        })
-        .catch(() => {
-          // Offline fallback for navigation requests
-          if (event.request.mode === "navigate") {
-            return caches.match(OFFLINE_URL);
-          }
-        });
-    })
-  );
+  event.respondWith(cacheFirstStatic(request));
 });
+
+// Network-first for API — serves stale data when offline
+async function networkFirstAPI(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(API_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    // Return empty JSON so app doesn't crash
+    return new Response(
+      JSON.stringify({ offline: true, error: "No cached data available" }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+
+// Navigation — serve page or offline fallback
+async function navigationStrategy(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(STATIC_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    // Try exact match first, then offline page
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return caches.match(OFFLINE_PAGE);
+  }
+}
+
+// Cache-first for static assets
+async function cacheFirstStatic(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (response.ok && response.type === "basic") {
+      const cache = await caches.open(STATIC_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return new Response("Offline", { status: 503 });
+  }
+}
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener("push", (event) => {
@@ -95,14 +156,14 @@ self.addEventListener("push", (event) => {
   catch { payload = { title: "VitaConnect", body: event.data.text() }; }
 
   const options = {
-    body:    payload.body    ?? payload.message ?? "",
+    body:    payload.body ?? payload.message ?? "",
     icon:    "/icons/icon-192x192.png",
     badge:   "/icons/badge-icon.png",
     vibrate: [200, 100, 200],
-    data:    payload.data    ?? {},
-    tag:     payload.tag     ?? "vitaconnect",
+    data:    { url: payload.url ?? "/dashboard", ...payload.data },
+    tag:     payload.tag ?? "vitaconnect",
+    requireInteraction: payload.requireInteraction ?? false,
     actions: payload.actions ?? [],
-    requireInteraction: payload.type === "APPOINTMENT_STARTED",
   };
 
   event.waitUntil(
@@ -114,16 +175,16 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const url = event.notification.data?.url ?? "/dashboard";
+  const targetUrl = event.notification.data?.url ?? "/dashboard";
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      const existing = list.find((c) => c.url.startsWith(self.location.origin));
+      const existing = list.find((c) => c.url.includes(self.location.origin));
       if (existing) {
         existing.focus();
-        return existing.navigate(url);
+        return existing.navigate(targetUrl);
       }
-      return clients.openWindow(url);
+      return clients.openWindow(targetUrl);
     })
   );
 });
@@ -131,60 +192,66 @@ self.addEventListener("notificationclick", (event) => {
 // ── Background sync — offline health metric queue ─────────────────────────────
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-health-metrics") {
-    event.waitUntil(flushOfflineMetrics());
+    event.waitUntil(flushOfflineQueue());
+  }
+  if (event.tag === "sync-appointments") {
+    event.waitUntil(syncAppointmentData());
   }
 });
 
-async function flushOfflineMetrics() {
-  let db;
-  try {
-    db = await openDB();
-    const pending = await getAllPending(db);
-    for (const item of pending) {
-      try {
-        const res = await fetch("/api/health-data/sync", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(item.payload),
-        });
-        if (res.ok) await deleteItem(db, item.id);
-      } catch {
-        // Will retry on next sync event
-      }
+async function flushOfflineQueue() {
+  const db = await openDB("vitaconnect-offline", 1, (db) => {
+    if (!db.objectStoreNames.contains("pending-metrics")) {
+      db.createObjectStore("pending-metrics", { keyPath: "id", autoIncrement: true });
     }
-  } catch (err) {
-    console.warn("[SW] flushOfflineMetrics failed:", err);
+  });
+
+  const pending = await dbGetAll(db, "pending-metrics");
+  for (const item of pending) {
+    try {
+      const res = await fetch("/api/health-data/sync", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(item.payload),
+      });
+      if (res.ok) await dbDelete(db, "pending-metrics", item.id);
+    } catch {
+      // Will retry on next sync event
+    }
   }
 }
 
+async function syncAppointmentData() {
+  try {
+    const res = await fetch("/api/appointments?upcoming=true");
+    if (res.ok) {
+      const cache = await caches.open(API_CACHE);
+      cache.put("/api/appointments?upcoming=true", res.clone());
+    }
+  } catch { /* ignore */ }
+}
+
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
-function openDB() {
+function openDB(name, version, upgrade) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("vitaconnect-offline", 1);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains("pending")) {
-        db.createObjectStore("pending", { keyPath: "id", autoIncrement: true });
-      }
-    };
+    const req = indexedDB.open(name, version);
+    req.onupgradeneeded = (e) => upgrade?.(e.target.result);
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
   });
 }
 
-function getAllPending(db) {
+function dbGetAll(db, store) {
   return new Promise((resolve, reject) => {
-    const tx  = db.transaction("pending", "readonly");
-    const req = tx.objectStore("pending").getAll();
+    const req = db.transaction(store, "readonly").objectStore(store).getAll();
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
   });
 }
 
-function deleteItem(db, id) {
+function dbDelete(db, store, id) {
   return new Promise((resolve, reject) => {
-    const tx  = db.transaction("pending", "readwrite");
-    const req = tx.objectStore("pending").delete(id);
+    const req = db.transaction(store, "readwrite").objectStore(store).delete(id);
     req.onsuccess = () => resolve();
     req.onerror   = () => reject(req.error);
   });

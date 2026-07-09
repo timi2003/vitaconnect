@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.from("Conversation").update({ updatedAt: now }).eq("id", conversationId);
 
-    // Real-time push
+    // Real-time push to the conversation itself (for anyone with it open)
     await pusher.trigger(`conversation-${conversationId}`, "new-message", {
       id: message.id,
       content: message.content,
@@ -216,6 +216,44 @@ export async function POST(req: NextRequest) {
       createdAt: message.createdAt,
       type: message.type,
     });
+
+    // ── Notify every other participant, even if they don't have the chat open ──
+    // Wrapped separately: a failure here must never make the client think the
+    // message itself failed to send, since it's already committed above.
+    try {
+      const { data: participants } = await supabase
+        .from("ConversationParticipant")
+        .select("userId")
+        .eq("conversationId", conversationId)
+        .neq("userId", session.user.id);
+
+      for (const p of participants || []) {
+        const { data: notification, error: notifErr } = await supabase
+          .from("Notification")
+          .insert({
+            id: uuidv4(),
+            userId: p.userId,
+            type: "MESSAGE",
+            title: `New message from ${message.sender?.name ?? "someone"}`,
+            message: message.content.slice(0, 140),
+            isRead: false,
+            createdAt: now,
+          })
+          .select()
+          .single();
+
+        if (notifErr) {
+          console.error("[messages POST] notification insert failed (non-fatal):", notifErr);
+          continue;
+        }
+
+        if (notification) {
+          await pusher.trigger(`user-${p.userId}`, "new-notification", notification);
+        }
+      }
+    } catch (notifyErr) {
+      console.error("[messages POST] notification step failed (non-fatal):", notifyErr);
+    }
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (err: any) {

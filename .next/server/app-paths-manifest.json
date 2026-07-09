@@ -1,3 +1,12 @@
 {
-  "/health-data/page": "app/health-data/page.js"
+  "/auth/login/page": "app/auth/login/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/appointments/new/page": "app/appointments/new/page.js",
+  "/appointments/page": "app/appointments/page.js",
+  "/appointments/[id]/page": "app/appointments/[id]/page.js",
+  "/api/profile/route": "app/api/profile/route.js",
+  "/doctor-portal/patients/page": "app/doctor-portal/patients/page.js",
+  "/doctor-portal/messages/page": "app/doctor-portal/messages/page.js",
+  "/api/messages/route": "app/api/messages/route.js",
+  "/doctor-portal/page": "app/doctor-portal/page.js"
 }

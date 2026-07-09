@@ -45,19 +45,25 @@ export default function BookAppointmentPage() {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(sp.get("doctorId") || "");
   const [doctorsLoading, setDoctorsLoading] = useState(true);
 
-  // Fetch available doctors
+  // Fetch doctors — no availability filter here, since this flow books a
+  // future scheduled appointment, not an on-demand "available right now" call.
   useEffect(() => {
     async function fetchDoctors() {
       try {
-        const res = await fetch("/api/doctors?available=true");
-        if (res.ok) {
-          const data = await res.json();
-          setDoctors(data.doctors || []);
-          
-          // Auto-select first doctor if none selected
-          if (!selectedDoctorId && data.doctors?.length > 0) {
-            setSelectedDoctorId(data.doctors[0].id);
-          }
+        const res = await fetch("/api/doctors");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          console.error("[BookAppointmentPage] /api/doctors failed:", res.status, body);
+          toast.error(body.error || `Failed to load doctors (${res.status})`);
+          return;
+        }
+
+        const data = await res.json();
+        setDoctors(data.doctors || []);
+
+        // Auto-select first doctor if none selected
+        if (!selectedDoctorId && data.doctors?.length > 0) {
+          setSelectedDoctorId(data.doctors[0].id);
         }
       } catch (error) {
         console.error("Failed to fetch doctors", error);
@@ -67,7 +73,8 @@ export default function BookAppointmentPage() {
       }
     }
     fetchDoctors();
-  }, [selectedDoctorId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function getNext14Days() {
     return Array.from({ length: 14 }, (_, i) => {
@@ -110,7 +117,7 @@ export default function BookAppointmentPage() {
       });
 
       if (!res.ok) throw new Error("Booking failed");
-      
+
       toast.success("Appointment booked successfully!");
       router.push("/appointments");
     } catch {
@@ -193,11 +200,11 @@ export default function BookAppointmentPage() {
           </div>
         )}
 
-        {/* New Step 2: Select Doctor */}
+        {/* Step 2: Select Doctor */}
         {step === 2 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Choose Doctor</h2>
-            
+
             {doctorsLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
@@ -212,8 +219,8 @@ export default function BookAppointmentPage() {
                     onClick={() => setSelectedDoctorId(doc.id)}
                     className={cn(
                       "w-full p-4 rounded-xl border text-left transition-all",
-                      selectedDoctorId === doc.id 
-                        ? "border-brand-500 bg-brand-500/10" 
+                      selectedDoctorId === doc.id
+                        ? "border-brand-500 bg-brand-500/10"
                         : "border-subtle hover:border-brand-500/30"
                     )}
                   >
@@ -247,7 +254,7 @@ export default function BookAppointmentPage() {
           </div>
         )}
 
-        {/* Step 3: Date & Time (renumbered) */}
+        {/* Step 3: Date & Time */}
         {step === 3 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Select date & time</h2>
@@ -318,7 +325,6 @@ export default function BookAppointmentPage() {
         {step === 4 && (
           <div className="glass p-6 border border-subtle space-y-5">
             <h2 className="font-display font-bold text-primary">Describe your symptoms</h2>
-            {/* ... same as before ... */}
             <div>
               <p className="text-xs text-muted font-display mb-3">Select all that apply</p>
               <div className="flex flex-wrap gap-2">
