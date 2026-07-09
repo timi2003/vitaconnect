@@ -15,14 +15,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const METRIC_TABS = [
-  { id: "HEART_RATE",        label: "Heart Rate",  icon: Heart,       color: "#f87171", unit: "bpm"         },
-  { id: "BLOOD_PRESSURE",    label: "Blood Press.",icon: Activity,    color: "#60a5fa", unit: "mmHg"        },
-  { id: "BLOOD_GLUCOSE",     label: "Glucose",     icon: Droplets,    color: "#fbbf24", unit: "mg/dL"       },
-  { id: "OXYGEN_SATURATION", label: "SpO2",        icon: Wind,        color: "#2dd4bf", unit: "%"           },
-  { id: "BODY_TEMPERATURE",  label: "Temperature", icon: Thermometer, color: "#a78bfa", unit: "°C"          },
-  { id: "SLEEP_DURATION",    label: "Sleep",       icon: Moon,        color: "#818cf8", unit: "min"         },
-  { id: "WEIGHT",            label: "Weight",      icon: Scale,       color: "#4ade80", unit: "kg"          },
-  { id: "STEPS",             label: "Steps",       icon: Footprints,  color: "#fb923c", unit: "steps"       },
+  { id: "HEART_RATE",        label: "Heart Rate",  icon: Heart,       color: "#f87171", unit: "bpm"   },
+  { id: "BLOOD_PRESSURE",    label: "Blood Press.",icon: Activity,    color: "#60a5fa", unit: "mmHg"  },
+  { id: "BLOOD_GLUCOSE",     label: "Glucose",     icon: Droplets,    color: "#fbbf24", unit: "mg/dL" },
+  { id: "OXYGEN_SATURATION", label: "SpO2",        icon: Wind,        color: "#2dd4bf", unit: "%"     },
+  { id: "BODY_TEMPERATURE",  label: "Temperature", icon: Thermometer, color: "#a78bfa", unit: "°C"    },
+  { id: "SLEEP_DURATION",    label: "Sleep",       icon: Moon,        color: "#818cf8", unit: "min"   },
+  { id: "WEIGHT",            label: "Weight",      icon: Scale,       color: "#4ade80", unit: "kg"    },
+  { id: "STEPS",             label: "Steps",       icon: Footprints,  color: "#fb923c", unit: "steps" },
 ];
 
 const RANGE_OPTIONS = [
@@ -40,10 +40,10 @@ interface MetricRow {
 const CustomTooltip = ({
   active, payload, label, unit,
 }: {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: string;
-  unit?: string;
+  active?:   boolean;
+  payload?:  Array<{ value: number }>;
+  label?:    string;
+  unit?:     string;
 }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -57,6 +57,33 @@ const CustomTooltip = ({
   );
 };
 
+// ── Safe live-value extractor ─────────────────────────────────────────────────
+// Health Connect returns different shapes per data type. We don't control the
+// type definition of HCRecord, so we cast to a loose record and try every
+// known field name. TypeScript is happy; runtime is safe.
+function extractLiveValue(record: unknown): number | string | null {
+  if (record == null) return null;
+  const r = record as Record<string, unknown>;
+
+  // Try known HC SDK field names in priority order
+  const candidates = [
+    r["beatsPerMinute"],                        // HeartRate
+    r["count"],                                 // Steps
+    r["rate"],                                  // RespiratoryRate
+    r["percentage"],                            // OxygenSaturation
+    (r["level"] as Record<string, unknown> | undefined)?.["value"],           // BloodGlucose
+    (r["weight"] as Record<string, unknown> | undefined)?.["inKilograms"],    // Weight
+    (r["temperature"] as Record<string, unknown> | undefined)?.["inCelsius"], // BodyTemperature
+    (r["systolic"] as Record<string, unknown> | undefined)?.["inMillimetersOfMercury"], // BP
+    r["value"],                                 // Generic fallback
+  ];
+
+  for (const c of candidates) {
+    if (c != null && (typeof c === "number" || typeof c === "string")) return c;
+  }
+  return null;
+}
+
 export default function HealthDataPage() {
   const hc = useHealthConnect();
 
@@ -68,7 +95,7 @@ export default function HealthDataPage() {
 
   const tab = METRIC_TABS.find((t) => t.id === activeMetric)!;
 
-  // ── Fetch real data from server ───────────────────────────────────────────
+  // ── Fetch chart data from server ──────────────────────────────────────────
   const fetchChartData = useCallback(async () => {
     setLoadingChart(true);
     try {
@@ -76,10 +103,7 @@ export default function HealthDataPage() {
       if (!res.ok) throw new Error("Failed to fetch");
       const { metrics } = await res.json();
 
-      if (!metrics || metrics.length === 0) {
-        setChartData([]);
-        return;
-      }
+      if (!metrics?.length) { setChartData([]); return; }
 
       const rows: MetricRow[] = metrics
         .slice()
@@ -102,7 +126,7 @@ export default function HealthDataPage() {
 
   useEffect(() => { fetchChartData(); }, [fetchChartData]);
 
-  // Refresh chart when a sync completes
+  // Refresh after sync completes
   useEffect(() => {
     if (!hc.isSyncing && hc.lastSyncAt) fetchChartData();
   }, [hc.isSyncing, hc.lastSyncAt, fetchChartData]);
@@ -114,8 +138,8 @@ export default function HealthDataPage() {
   const maxVal = chartData.length ? Math.max(...chartData.map((d) => d.value)) : 0;
   const minVal = chartData.length ? Math.min(...chartData.map((d) => d.value)) : 0;
 
-  // Live metric from HC if polling
-  const liveReading = hc.liveMetrics[activeMetric];
+  const liveReading  = hc.liveMetrics[activeMetric];
+  const liveValue    = extractLiveValue(liveReading);
 
   return (
     <DashboardLayout>
@@ -137,17 +161,14 @@ export default function HealthDataPage() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            {/* Connect HC if not available */}
             {hc.availability === "Available" && hc.grantedPermissions.length === 0 && (
               <button
                 onClick={() => hc.requestPermissions()}
                 className="btn-primary text-sm py-2 px-4 flex items-center gap-2"
               >
-                <Heart className="w-4 h-4" />
-                Connect Health Data
+                <Heart className="w-4 h-4" /> Connect Health Data
               </button>
             )}
-
             <button
               onClick={() => hc.syncToServer()}
               disabled={hc.isSyncing || !hc.isAvailable}
@@ -156,18 +177,16 @@ export default function HealthDataPage() {
               <RefreshCw className={cn("w-4 h-4", hc.isSyncing && "animate-spin")} />
               {hc.isSyncing ? "Syncing…" : "Sync Now"}
             </button>
-
             <button
               onClick={fetchChartData}
               className="btn-ghost text-sm py-2 px-4 flex items-center gap-2"
             >
-              <Download className="w-4 h-4" />
-              Refresh
+              <Download className="w-4 h-4" /> Refresh
             </button>
           </div>
         </div>
 
-        {/* HC not available warning */}
+        {/* HC not available */}
         {hc.availability === "WebOnly" && (
           <div className="glass border border-amber-500/25 bg-amber-500/5 p-4 flex gap-3">
             <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
@@ -179,21 +198,14 @@ export default function HealthDataPage() {
         )}
 
         {/* Live reading banner */}
-        {liveReading && (
+        {liveReading && liveValue != null && (
           <div className="glass border border-accent-green/25 bg-accent-green/5 p-3 flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse flex-shrink-0" />
             <p className="text-sm text-secondary">
               <span className="text-accent-green font-semibold">Live reading: </span>
               {tab.label} —{" "}
               <span className="font-mono font-bold text-primary">
-                {liveReading.beatsPerMinute ??
-                 liveReading.count ??
-                 liveReading.rate ??
-                 liveReading.percentage ??
-                 (liveReading.level?.value) ??
-                 (liveReading.weight?.inKilograms) ??
-                 (liveReading.temperature?.inCelsius) ?? "—"}{" "}
-                {tab.unit}
+                {liveValue} {tab.unit}
               </span>
             </p>
           </div>
@@ -208,7 +220,7 @@ export default function HealthDataPage() {
                 "text-sm font-display font-medium transition-all duration-200",
                 activeMetric === m.id
                   ? "border-brand-500/40 bg-brand-500/12 text-brand-300"
-                  : "border-subtle text-muted hover:border-brand-500/25 hover:text-secondary"
+                  : "border-subtle text-muted hover:border-brand-500/25 hover:text-secondary",
               )}>
               <m.icon className="w-3.5 h-3.5"
                 style={{ color: activeMetric === m.id ? m.color : undefined }} />
@@ -221,7 +233,7 @@ export default function HealthDataPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Latest",  value: `${latest} ${tab.unit}` },
-            { label: "Average", value: `${avg} ${tab.unit}` },
+            { label: "Average", value: `${avg} ${tab.unit}`    },
             { label: "Max",     value: `${maxVal} ${tab.unit}` },
             { label: "Min",     value: `${minVal} ${tab.unit}` },
           ].map((s) => (
@@ -238,9 +250,7 @@ export default function HealthDataPage() {
             <div className="flex items-center gap-2">
               <tab.icon className="w-4 h-4" style={{ color: tab.color }} />
               <h2 className="text-sm font-display font-bold text-primary">{tab.label} Trend</h2>
-              {loadingChart && (
-                <RefreshCw className="w-3.5 h-3.5 text-muted animate-spin" />
-              )}
+              {loadingChart && <RefreshCw className="w-3.5 h-3.5 text-muted animate-spin" />}
             </div>
             <div className="flex items-center gap-2">
               <div className="flex rounded-xl border border-subtle overflow-hidden">
@@ -248,7 +258,7 @@ export default function HealthDataPage() {
                   <button key={r.days} onClick={() => setRange(r.days)}
                     className={cn(
                       "px-3 py-1.5 text-xs font-display font-medium transition-colors",
-                      range === r.days ? "bg-brand-500/20 text-brand-300" : "text-muted hover:text-secondary"
+                      range === r.days ? "bg-brand-500/20 text-brand-300" : "text-muted hover:text-secondary",
                     )}>
                     {r.label}
                   </button>
@@ -259,7 +269,7 @@ export default function HealthDataPage() {
                   <button key={t} onClick={() => setChartType(t)}
                     className={cn(
                       "px-3 py-1.5 text-xs font-display font-medium transition-colors capitalize",
-                      chartType === t ? "bg-brand-500/20 text-brand-300" : "text-muted hover:text-secondary"
+                      chartType === t ? "bg-brand-500/20 text-brand-300" : "text-muted hover:text-secondary",
                     )}>
                     {t}
                   </button>
@@ -287,7 +297,7 @@ export default function HealthDataPage() {
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               {chartType === "area" ? (
-                <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                <AreaChart data={chartData} margin={{ top:5, right:5, bottom:5, left:0 }}>
                   <defs>
                     <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%"  stopColor={tab.color} stopOpacity={0.25} />
@@ -296,24 +306,24 @@ export default function HealthDataPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(10,140,232,0.06)" />
                   <XAxis dataKey="date" tick={{ fill:"#4d6fa8", fontSize:10 }}
-                         tickLine={false} axisLine={false}
-                         interval={Math.max(0, Math.floor(chartData.length / 6))} />
+                    tickLine={false} axisLine={false}
+                    interval={Math.max(0, Math.floor(chartData.length / 6))} />
                   <YAxis tick={{ fill:"#4d6fa8", fontSize:10 }} tickLine={false} axisLine={false} width={40} />
                   <Tooltip content={<CustomTooltip unit={tab.unit} />} />
                   <Area type="monotone" dataKey="value" stroke={tab.color} strokeWidth={2}
-                        fill="url(#grad)" dot={false}
-                        activeDot={{ r:4, fill:tab.color, strokeWidth:0 }} />
+                    fill="url(#grad)" dot={false}
+                    activeDot={{ r:4, fill:tab.color, strokeWidth:0 }} />
                 </AreaChart>
               ) : (
-                <LineChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                <LineChart data={chartData} margin={{ top:5, right:5, bottom:5, left:0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(10,140,232,0.06)" />
                   <XAxis dataKey="date" tick={{ fill:"#4d6fa8", fontSize:10 }}
-                         tickLine={false} axisLine={false}
-                         interval={Math.max(0, Math.floor(chartData.length / 6))} />
+                    tickLine={false} axisLine={false}
+                    interval={Math.max(0, Math.floor(chartData.length / 6))} />
                   <YAxis tick={{ fill:"#4d6fa8", fontSize:10 }} tickLine={false} axisLine={false} width={40} />
                   <Tooltip content={<CustomTooltip unit={tab.unit} />} />
                   <Line type="monotone" dataKey="value" stroke={tab.color} strokeWidth={2.5}
-                        dot={false} activeDot={{ r:4, fill:tab.color, strokeWidth:0 }} />
+                    dot={false} activeDot={{ r:4, fill:tab.color, strokeWidth:0 }} />
                 </LineChart>
               )}
             </ResponsiveContainer>
