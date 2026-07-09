@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DoctorDashboardLayout } from "@/components/layout/DoctorDasboardLayout";
 import { Pill, Plus, Trash2, Loader2, ArrowLeft, Search } from "lucide-react";
@@ -18,6 +18,8 @@ interface MedItem {
   instructions: string;
   isChronic:    boolean;
 }
+
+interface PatientOption { id: string; name: string; image: string | null; }
 
 const COMMON_MEDS = [
   "Lisinopril","Metformin","Amlodipine","Atorvastatin","Omeprazole",
@@ -46,16 +48,88 @@ function newMed(): MedItem {
   };
 }
 
-export default function NewPrescriptionPage() {
+function NewPrescriptionForm() {
   const sp     = useSearchParams();
   const router = useRouter();
+  const preselectedPatientId = sp.get("patientId");
 
-  const [patientSearch, setPatientSearch] = useState(sp.get("patientId") ? "Alex Johnson" : "");
+  const [patientId,      setPatientId]      = useState<string | null>(null);
+  const [patientQuery,   setPatientQuery]   = useState("");
+  const [patientResults, setPatientResults] = useState<PatientOption[]>([]);
+  const [searchingPatients, setSearchingPatients] = useState(false);
+  const [showResults,    setShowResults]    = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
   const [diagnosis,     setDiagnosis]     = useState("");
   const [notes,         setNotes]         = useState("");
   const [refills,       setRefills]       = useState(0);
   const [meds,          setMeds]          = useState<MedItem[]>([newMed()]);
   const [loading,       setLoading]       = useState(false);
+
+  // ── Resolve a preselected patientId from the URL to their real name ───────
+  useEffect(() => {
+    if (!preselectedPatientId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/patients?id=${encodeURIComponent(preselectedPatientId)}`);
+        if (!res.ok) return;
+        const { patients } = await res.json();
+        const match = patients?.[0];
+        if (match) {
+          setPatientId(match.id);
+          setPatientQuery(match.name);
+        }
+      } catch (err) {
+        console.error("[NewPrescriptionPage] preselected patient lookup failed:", err);
+      }
+    })();
+  }, [preselectedPatientId]);
+
+  // ── Live patient search ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!patientQuery.trim() || patientId) {
+      setPatientResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      setSearchingPatients(true);
+      try {
+        const res = await fetch(`/api/patients?search=${encodeURIComponent(patientQuery.trim())}`);
+        if (!res.ok) throw new Error("Patient search failed");
+        const { patients } = await res.json();
+        setPatientResults(
+          (patients || []).map((p: any) => ({ id: p.id, name: p.name, image: p.image ?? null }))
+        );
+      } catch (err) {
+        console.error("[NewPrescriptionPage] patient search failed:", err);
+      } finally {
+        setSearchingPatients(false);
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [patientQuery, patientId]);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  function selectPatient(p: PatientOption) {
+    setPatientId(p.id);
+    setPatientQuery(p.name);
+    setPatientResults([]);
+    setShowResults(false);
+  }
+
+  function clearPatient() {
+    setPatientId(null);
+    setPatientQuery("");
+  }
 
   function updateMed(id: string, key: keyof MedItem, value: string | number | boolean) {
     setMeds((prev) => prev.map((m) => m.id === id ? { ...m, [key]: value } : m));
@@ -71,11 +145,13 @@ export default function NewPrescriptionPage() {
   async function handleSubmit() {
     const invalid = meds.find((m) => !m.medicationName || !m.dosage);
     if (invalid) { toast.error("Fill in medication name and dosage for all items"); return; }
-    if (!patientSearch) { toast.error("Select a patient"); return; }
+    if (!patientId) { toast.error("Select a patient from the search results"); return; }
 
     setLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 1000)); // replace with real API call
+      // TODO: wire to a real /api/prescriptions endpoint once the
+      // Prescription table schema is confirmed — this still doesn't persist yet.
+      await new Promise((r) => setTimeout(r, 1000));
       toast.success("Prescription issued successfully");
       router.push("/doctor-portal/patients");
     } catch {
@@ -102,19 +178,51 @@ export default function NewPrescriptionPage() {
         {/* Patient */}
         <div className="glass border border-subtle p-5 space-y-4">
           <h2 className="text-sm font-display font-bold text-primary">Patient</h2>
-          <div className="relative">
+          <div ref={searchBoxRef} className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
             <input className="input pl-10 text-sm" placeholder="Search patient name…"
-              value={patientSearch} onChange={(e) => setPatientSearch(e.target.value)} />
+              value={patientQuery}
+              onFocus={() => setShowResults(true)}
+              onChange={(e) => {
+                setPatientQuery(e.target.value);
+                setPatientId(null);
+                setShowResults(true);
+              }} />
+            {patientId && (
+              <button onClick={clearPatient}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted hover:text-secondary">
+                ×
+              </button>
+            )}
+
+            {showResults && patientQuery.trim() && !patientId && (
+              <div className="absolute z-10 mt-1 w-full border border-subtle rounded-xl bg-surface-900 shadow-lg overflow-hidden">
+                {searchingPatients && (
+                  <div className="flex justify-center py-3">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted" />
+                  </div>
+                )}
+                {!searchingPatients && patientResults.length === 0 && (
+                  <p className="text-xs text-muted text-center py-3">No patients found.</p>
+                )}
+                {!searchingPatients && patientResults.map((p) => (
+                  <button key={p.id} onClick={() => selectPatient(p)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-surface-800/60 transition-colors">
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          {patientSearch && (
+
+          {patientId && (
             <div className="p-3 rounded-xl bg-surface-800/40 border border-subtle flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-brand-600/30 text-brand-300 border border-white/10
                               flex items-center justify-center font-display font-bold text-xs">
-                {patientSearch.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+                {patientQuery.split(" ").map((w) => w[0]).filter(Boolean).join("").slice(0, 2).toUpperCase()}
               </div>
               <div>
-                <p className="text-sm font-display font-semibold text-primary">{patientSearch}</p>
+                <p className="text-sm font-display font-semibold text-primary">{patientQuery}</p>
                 <p className="text-xs text-muted">Patient confirmed</p>
               </div>
             </div>
@@ -172,7 +280,6 @@ export default function NewPrescriptionPage() {
                   )}
                 </div>
 
-                {/* Name with suggestions */}
                 <div>
                   <label className="text-xs text-muted font-display block mb-1.5">
                     Medication Name <span className="text-accent-coral">*</span>
@@ -257,5 +364,19 @@ export default function NewPrescriptionPage() {
         </div>
       </div>
     </DoctorDashboardLayout>
+  );
+}
+
+export default function NewPrescriptionPage() {
+  return (
+    <Suspense fallback={
+      <DoctorDashboardLayout>
+        <div className="flex justify-center py-24">
+          <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
+        </div>
+      </DoctorDashboardLayout>
+    }>
+      <NewPrescriptionForm />
+    </Suspense>
   );
 }

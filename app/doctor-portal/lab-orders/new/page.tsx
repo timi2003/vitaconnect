@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DoctorDashboardLayout } from "@/components/layout/DoctorDasboardLayout";
 import { TestTube2, Plus, Trash2, Loader2, ArrowLeft, Search } from "lucide-react";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 interface TestItem { id: string; testCode: string; testName: string; category: string; isStat: boolean; }
+interface PatientOption { id: string; name: string; image: string | null; }
 
 const LAB_PANELS = [
   { category:"Metabolic",    tests:[
@@ -50,16 +51,90 @@ function newTest(): TestItem {
   return { id: Date.now().toString(), testCode:"", testName:"", category:"Other", isStat:false };
 }
 
-export default function NewLabOrderPage() {
+function NewLabOrderForm() {
   const sp     = useSearchParams();
   const router = useRouter();
+  const preselectedPatientId = sp.get("patientId");
 
-  const [patientSearch, setPatientSearch] = useState(sp.get("patientId") ? "Alex Johnson" : "");
+  const [patientId,      setPatientId]      = useState<string | null>(null);
+  const [patientQuery,   setPatientQuery]   = useState("");
+  const [patientResults, setPatientResults] = useState<PatientOption[]>([]);
+  const [searchingPatients, setSearchingPatients] = useState(false);
+  const [showResults,    setShowResults]    = useState(false);
+
   const [priority,      setPriority]      = useState("ROUTINE");
   const [labName,       setLabName]       = useState("");
   const [notes,         setNotes]         = useState("");
   const [tests,         setTests]         = useState<TestItem[]>([]);
   const [loading,       setLoading]       = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  // ── If a patientId came in via the URL (e.g. "Order labs" from a patient's
+  // chart), look up their real name instead of assuming who they are ──────────
+  useEffect(() => {
+    if (!preselectedPatientId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/patients?id=${encodeURIComponent(preselectedPatientId)}`);
+        if (!res.ok) return;
+        const { patients } = await res.json();
+        const match = patients?.[0];
+        if (match) {
+          setPatientId(match.id);
+          setPatientQuery(match.name);
+        }
+      } catch (err) {
+        console.error("[NewLabOrderPage] preselected patient lookup failed:", err);
+      }
+    })();
+  }, [preselectedPatientId]);
+
+  // ── Live patient search ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!patientQuery.trim() || patientId) {
+      setPatientResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      setSearchingPatients(true);
+      try {
+        const res = await fetch(`/api/patients?search=${encodeURIComponent(patientQuery.trim())}`);
+        if (!res.ok) throw new Error("Patient search failed");
+        const { patients } = await res.json();
+        setPatientResults(
+          (patients || []).map((p: any) => ({ id: p.id, name: p.name, image: p.image ?? null }))
+        );
+      } catch (err) {
+        console.error("[NewLabOrderPage] patient search failed:", err);
+      } finally {
+        setSearchingPatients(false);
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [patientQuery, patientId]);
+
+  // Close the results dropdown on outside click
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  function selectPatient(p: PatientOption) {
+    setPatientId(p.id);
+    setPatientQuery(p.name);
+    setPatientResults([]);
+    setShowResults(false);
+  }
+
+  function clearPatient() {
+    setPatientId(null);
+    setPatientQuery("");
+  }
 
   function addFromPanel(test: { code:string; name:string }, category: string) {
     if (tests.find((t) => t.testCode === test.code)) {
@@ -78,10 +153,12 @@ export default function NewLabOrderPage() {
   function removeTest(id: string) { setTests((p) => p.filter((t) => t.id !== id)); }
 
   async function handleSubmit() {
-    if (!patientSearch) { toast.error("Select a patient"); return; }
+    if (!patientId) { toast.error("Select a patient from the search results"); return; }
     if (tests.length === 0) { toast.error("Add at least one test"); return; }
     setLoading(true);
     try {
+      // TODO: wire to a real /api/lab-orders endpoint once the LabOrder table
+      // schema is confirmed — this still doesn't persist anything yet.
       await new Promise((r) => setTimeout(r, 900));
       toast.success(`Lab order placed for ${tests.length} test(s)`);
       router.push("/doctor-portal/patients");
@@ -110,13 +187,44 @@ export default function NewLabOrderPage() {
         <div className="glass border border-subtle p-5 space-y-4">
           <h2 className="text-sm font-display font-bold text-primary">Order Details</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+            <div ref={searchBoxRef} className="relative">
               <label className="text-xs text-muted font-display block mb-1.5">Patient</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-                <input className="input pl-10 text-sm" placeholder="Search patient…"
-                  value={patientSearch} onChange={(e) => setPatientSearch(e.target.value)} />
+                <input className="input pl-10 text-sm" placeholder="Search patient by name…"
+                  value={patientQuery}
+                  onFocus={() => setShowResults(true)}
+                  onChange={(e) => {
+                    setPatientQuery(e.target.value);
+                    setPatientId(null); // typing again means the prior selection no longer applies
+                    setShowResults(true);
+                  }} />
+                {patientId && (
+                  <button onClick={clearPatient}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted hover:text-secondary">
+                    ×
+                  </button>
+                )}
               </div>
+
+              {showResults && patientQuery.trim() && !patientId && (
+                <div className="absolute z-10 mt-1 w-full border border-subtle rounded-xl bg-surface-900 shadow-lg overflow-hidden">
+                  {searchingPatients && (
+                    <div className="flex justify-center py-3">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted" />
+                    </div>
+                  )}
+                  {!searchingPatients && patientResults.length === 0 && (
+                    <p className="text-xs text-muted text-center py-3">No patients found.</p>
+                  )}
+                  {!searchingPatients && patientResults.map((p) => (
+                    <button key={p.id} onClick={() => selectPatient(p)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-800/60 transition-colors">
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="text-xs text-muted font-display block mb-1.5">Priority</label>
@@ -226,5 +334,19 @@ export default function NewLabOrderPage() {
         </div>
       </div>
     </DoctorDashboardLayout>
+  );
+}
+
+export default function NewLabOrderPage() {
+  return (
+    <Suspense fallback={
+      <DoctorDashboardLayout>
+        <div className="flex justify-center py-24">
+          <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+        </div>
+      </DoctorDashboardLayout>
+    }>
+      <NewLabOrderForm />
+    </Suspense>
   );
 }

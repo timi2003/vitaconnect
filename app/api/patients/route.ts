@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get("search");
+  const id = searchParams.get("id");
 
   const supabase = createServerSupabaseClient();
 
@@ -26,7 +27,9 @@ export async function GET(req: NextRequest) {
     .eq("role", "PATIENT")
     .eq("isActive", true);
 
-  if (search) {
+  if (id) {
+    query = query.eq("id", id);
+  } else if (search) {
     query = query.ilike("name", `%${search}%`);
   }
 
