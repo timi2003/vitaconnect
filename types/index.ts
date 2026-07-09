@@ -49,6 +49,23 @@ export interface AppointmentSummary {
   specialty:   string;
 }
 
+// Add this to your existing types/index.ts (or types.ts)
+// This makes DocType available project-wide for any file that imports from @/types
+
+export type DocType =
+  | "PRESCRIPTION"
+  | "LAB_REPORT"
+  | "IMAGING"
+  | "DISCHARGE_SUMMARY"
+  | "REFERRAL"
+  | "VACCINATION"
+  | "INSURANCE"
+  | "CONSENT"
+  | "OTHER";
+
+// If you're using the Prisma enum directly elsewhere, you can also re-export it:
+// export { DocType } from "@prisma/client";
+// But only use that line if you're importing Prisma client on the server — not in client components.
 // ── Health Metrics ────────────────────────────────────────────────────────────
 export type HealthMetricType =
   | "HEART_RATE" | "BLOOD_PRESSURE" | "BLOOD_GLUCOSE"
