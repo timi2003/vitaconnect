@@ -10,33 +10,35 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 const TABS = [
-  { id: "profile", label: "Profile", icon: User },
-  { id: "notif", label: "Notifications", icon: Bell },
-  { id: "security", label: "Security", icon: Shield },
-  { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "profile",  label: "Profile",       icon: User     },
+  { id: "notif",    label: "Notifications", icon: Bell     },
+  { id: "security", label: "Security",      icon: Shield   },
+  { id: "billing",  label: "Billing",       icon: CreditCard },
 ];
 
 const SPECIALTIES = [
-  "General Practice", "Cardiology", "Endocrinology", "Dermatology", "Neurology",
-  "Orthopedics", "Psychiatry", "Pediatrics", "Oncology", "Gynecology",
+  "General Practice","Cardiology","Endocrinology","Dermatology","Neurology",
+  "Orthopedics","Psychiatry","Pediatrics","Oncology","Gynecology",
 ];
 
-const LANGUAGES = ["English", "French", "Spanish", "Arabic", "Yoruba", "Hausa", "Igbo", "Portuguese", "Mandarin", "Hindi"];
+const LANGUAGES = [
+  "English","French","Spanish","Arabic","Yoruba","Hausa","Igbo","Portuguese","Mandarin","Hindi",
+];
 
 type FormState = {
-  name: string;
-  email: string;
-  phone: string;
-  licenseNumber: string;
-  npiNumber: string;
-  experience: string;
-  hospital: string;
-  department: string;
-  bio: string;
-  consultFee: string;
-  followUpFee: string;
+  name:            string;
+  email:           string;
+  phone:           string;
+  licenseNumber:   string;
+  npiNumber:       string;
+  experience:      string;
+  hospital:        string;
+  department:      string;
+  bio:             string;
+  consultFee:      string;
+  followUpFee:     string;
   specializations: string[];
-  languages: string[];
+  languages:       string[];
 };
 
 const EMPTY_FORM: FormState = {
@@ -46,36 +48,39 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function DoctorProfilePage() {
-  const [tab, setTab] = useState("profile");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [tab,            setTab]            = useState("profile");
+  const [loading,        setLoading]        = useState(true);
+  const [saving,         setSaving]         = useState(false);
+  const [form,           setForm]           = useState<FormState>(EMPTY_FORM);
+  const [qualifications, setQualifications] = useState<
+    { degree: string; institution: string; year: string }[]
+  >([]);
 
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [qualifications, setQualifications] = useState<{ degree: string; institution: string; year: string }[]>([]);
-
-  // ── Load real data on mount ──────────────────────────────────────────────
+  // ── Load profile ──────────────────────────────────────────────────────────
   useEffect(() => {
     async function loadProfile() {
       try {
         const res = await fetch("/api/profile");
         if (!res.ok) throw new Error("Failed to load profile");
         const { user } = await res.json();
-        const doctor = user.doctor_profile ?? {};
+
+        // API returns camelCase "doctorProfile" (not "doctor_profile")
+        const doctor = user.doctorProfile ?? user.DoctorProfile ?? {};
 
         setForm({
-          name: user.name ?? "",
-          email: user.email ?? "",
-          phone: user.phone ?? "",
-          licenseNumber: doctor.licenseNumber ?? "",
-          npiNumber: doctor.npiNumber ?? "",
-          experience: doctor.experience?.toString() ?? "",
-          hospital: doctor.hospital ?? "",
-          department: doctor.department ?? "",
-          bio: doctor.bio ?? "",
-          consultFee: doctor.consultationFee?.toString() ?? "",
-          followUpFee: doctor.followUpFee?.toString() ?? "",
-          specializations: doctor.specializations ?? [],
-          languages: doctor.languages ?? [],
+          name:            user.name                          ?? "",
+          email:           user.email                         ?? "",
+          phone:           user.phone                         ?? "",
+          licenseNumber:   doctor.licenseNumber               ?? "",
+          npiNumber:       doctor.npiNumber                   ?? "",
+          experience:      doctor.experience?.toString()      ?? "",
+          hospital:        doctor.hospital                    ?? "",
+          department:      doctor.department                  ?? "",
+          bio:             doctor.bio                         ?? "",
+          consultFee:      doctor.consultationFee?.toString() ?? "",
+          followUpFee:     doctor.followUpFee?.toString()     ?? "",
+          specializations: doctor.specializations             ?? [],
+          languages:       doctor.languages                   ?? [],
         });
         setQualifications(doctor.qualifications ?? []);
       } catch (err) {
@@ -88,7 +93,9 @@ export default function DoctorProfilePage() {
     loadProfile();
   }, []);
 
-  function update(k: string, v: string) { setForm((p) => ({ ...p, [k]: v })); }
+  function update(k: string, v: string) {
+    setForm((p) => ({ ...p, [k]: v }));
+  }
 
   function toggleSpec(s: string) {
     setForm((p) => ({
@@ -113,33 +120,35 @@ export default function DoctorProfilePage() {
   }
 
   function updateQual(i: number, k: string, v: string) {
-    setQualifications((p) => p.map((q, idx) => (idx === i ? { ...q, [k]: v } : q)));
+    setQualifications((p) =>
+      p.map((q, idx) => (idx === i ? { ...q, [k]: v } : q))
+    );
   }
 
   function removeQual(i: number) {
     setQualifications((p) => p.filter((_, idx) => idx !== i));
   }
 
-  // ── Save real data ────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true);
     try {
       const res = await fetch("/api/profile", {
-        method: "PUT",
+        method:  "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: form.name,
-          phone: form.phone,
-          licenseNumber: form.licenseNumber,
-          npiNumber: form.npiNumber,
-          experience: form.experience ? Number(form.experience) : undefined,
-          hospital: form.hospital,
-          department: form.department,
-          bio: form.bio,
-          consultationFee: form.consultFee ? Number(form.consultFee) : undefined,
-          followUpFee: form.followUpFee ? Number(form.followUpFee) : undefined,
+          name:            form.name,
+          phone:           form.phone,
+          licenseNumber:   form.licenseNumber,
+          npiNumber:       form.npiNumber,
+          experience:      form.experience ? Number(form.experience) : undefined,
+          hospital:        form.hospital,
+          department:      form.department,
+          bio:             form.bio,
+          consultationFee: form.consultFee  ? Number(form.consultFee)  : undefined,
+          followUpFee:     form.followUpFee ? Number(form.followUpFee) : undefined,
           specializations: form.specializations,
-          languages: form.languages,
+          languages:       form.languages,
           qualifications,
         }),
       });
@@ -150,17 +159,19 @@ export default function DoctorProfilePage() {
       }
 
       toast.success("Profile saved successfully");
-    } catch (err: any) {
-      console.error("[DoctorProfilePage] save failed:", err);
-      toast.error(err.message || "Failed to save profile");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save profile";
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
   }
 
+  // ── Layout wraps both loading and loaded states ───────────────────────────
+  // DoctorDashboardLayout only accepts { children } — it fetches its own data
   if (loading) {
     return (
-      <DoctorDashboardLayout doctorName="">
+      <DoctorDashboardLayout>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
         </div>
@@ -169,7 +180,7 @@ export default function DoctorProfilePage() {
   }
 
   return (
-    <DoctorDashboardLayout doctorName={form.name}>
+    <DoctorDashboardLayout>
       <div className="page-enter max-w-4xl mx-auto space-y-6 pb-24 lg:pb-8">
 
         <div>
@@ -191,7 +202,6 @@ export default function DoctorProfilePage() {
             </div>
           </div>
 
-          {/* Content */}
           <div className="flex-1 min-w-0 space-y-5">
 
             {/* ── Profile tab ── */}
@@ -231,20 +241,25 @@ export default function DoctorProfilePage() {
                 <div className="glass border border-subtle p-6 space-y-4">
                   <h3 className="font-display font-bold text-primary text-sm">Personal Information</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      { label: "Full Name", key: "name", type: "text" },
-                      { label: "Email", key: "email", type: "email" },
-                      { label: "Phone", key: "phone", type: "tel" },
-                      { label: "License Number", key: "licenseNumber", type: "text" },
-                      { label: "NPI Number", key: "npiNumber", type: "text" },
-                      { label: "Years Experience", key: "experience", type: "number" },
-                    ].map(({ label, key, type }) => (
+                    {(
+                      [
+                        { label: "Full Name",        key: "name",          type: "text"   },
+                        { label: "Email",             key: "email",         type: "email"  },
+                        { label: "Phone",             key: "phone",         type: "tel"    },
+                        { label: "License Number",    key: "licenseNumber", type: "text"   },
+                        { label: "NPI Number",        key: "npiNumber",     type: "text"   },
+                        { label: "Years Experience",  key: "experience",    type: "number" },
+                      ] as { label: string; key: keyof FormState; type: string }[]
+                    ).map(({ label, key, type }) => (
                       <div key={key}>
                         <label className="text-xs text-muted font-display block mb-1.5">{label}</label>
-                        <input className="input text-sm" type={type}
+                        <input
+                          className="input text-sm"
+                          type={type}
                           disabled={key === "email"}
-                          value={form[key as keyof typeof form] as string}
-                          onChange={(e) => update(key, e.target.value)} />
+                          value={form[key] as string}
+                          onChange={(e) => update(key, e.target.value)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -266,22 +281,19 @@ export default function DoctorProfilePage() {
                     </div>
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Consultation Fee ($)</label>
-                      <input className="input text-sm" type="number"
-                        value={form.consultFee}
+                      <input className="input text-sm" type="number" value={form.consultFee}
                         onChange={(e) => update("consultFee", e.target.value)} />
                     </div>
                     <div>
                       <label className="text-xs text-muted font-display block mb-1.5">Follow-up Fee ($)</label>
-                      <input className="input text-sm" type="number"
-                        value={form.followUpFee}
+                      <input className="input text-sm" type="number" value={form.followUpFee}
                         onChange={(e) => update("followUpFee", e.target.value)} />
                     </div>
                   </div>
                   <div>
                     <label className="text-xs text-muted font-display block mb-1.5">Bio</label>
                     <textarea className="input text-sm min-h-[96px] resize-none"
-                      value={form.bio}
-                      onChange={(e) => update("bio", e.target.value)} />
+                      value={form.bio} onChange={(e) => update("bio", e.target.value)} />
                   </div>
                 </div>
 
@@ -295,7 +307,7 @@ export default function DoctorProfilePage() {
                           "px-3 py-1.5 rounded-xl border text-xs font-display font-medium transition-all",
                           form.specializations.includes(s)
                             ? "border-teal-500/40 bg-teal-500/12 text-teal-300"
-                            : "border-subtle text-muted hover:border-teal-500/25"
+                            : "border-subtle text-muted hover:border-teal-500/25",
                         )}>{s}</button>
                     ))}
                   </div>
@@ -311,7 +323,7 @@ export default function DoctorProfilePage() {
                           "px-3 py-1.5 rounded-xl border text-xs font-display font-medium transition-all",
                           form.languages.includes(l)
                             ? "border-brand-500/40 bg-brand-500/12 text-brand-300"
-                            : "border-subtle text-muted hover:border-brand-500/25"
+                            : "border-subtle text-muted hover:border-brand-500/25",
                         )}>{l}</button>
                     ))}
                   </div>
@@ -330,24 +342,31 @@ export default function DoctorProfilePage() {
                     {qualifications.map((q, i) => (
                       <div key={i} className="flex items-center gap-2 flex-wrap">
                         <input className="input text-sm flex-1 min-w-32" placeholder="Degree"
-                          value={q.degree} onChange={(e) => updateQual(i, "degree", e.target.value)} />
+                          value={q.degree}
+                          onChange={(e) => updateQual(i, "degree", e.target.value)} />
                         <input className="input text-sm flex-1 min-w-48" placeholder="Institution"
-                          value={q.institution} onChange={(e) => updateQual(i, "institution", e.target.value)} />
+                          value={q.institution}
+                          onChange={(e) => updateQual(i, "institution", e.target.value)} />
                         <input className="input text-sm w-20" placeholder="Year" type="number"
-                          value={q.year} onChange={(e) => updateQual(i, "year", e.target.value)} />
+                          value={q.year}
+                          onChange={(e) => updateQual(i, "year", e.target.value)} />
                         <button onClick={() => removeQual(i)}
                           className="text-rose-400 hover:text-rose-300 transition-colors flex-shrink-0">
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
+                    {qualifications.length === 0 && (
+                      <p className="text-xs text-muted">No qualifications added yet.</p>
+                    )}
                   </div>
                 </div>
 
                 <button onClick={handleSave} disabled={saving}
                   className="btn-primary flex items-center gap-2">
-                  {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
-                           : <><Save className="w-4 h-4" />Save Changes</>}
+                  {saving
+                    ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
+                    : <><Save className="w-4 h-4" />Save Changes</>}
                 </button>
               </>
             )}
@@ -357,12 +376,12 @@ export default function DoctorProfilePage() {
               <div className="glass border border-subtle p-6 space-y-4">
                 <h3 className="font-display font-bold text-primary text-sm">Notification Preferences</h3>
                 {[
-                  { label: "New Appointment Bookings", desc: "When a patient books a consultation", checked: true },
-                  { label: "Appointment Reminders", desc: "15 minutes before each appointment", checked: true },
-                  { label: "Patient Messages", desc: "When a patient sends you a message", checked: true },
-                  { label: "Lab Result Updates", desc: "When lab results for your patients arrive", checked: true },
-                  { label: "Review Notifications", desc: "When a patient leaves a review", checked: false },
-                  { label: "Platform Updates", desc: "News and feature announcements", checked: false },
+                  { label: "New Appointment Bookings", desc: "When a patient books a consultation",    checked: true  },
+                  { label: "Appointment Reminders",    desc: "15 minutes before each appointment",    checked: true  },
+                  { label: "Patient Messages",         desc: "When a patient sends you a message",    checked: true  },
+                  { label: "Lab Result Updates",       desc: "When lab results for your patients arrive", checked: true },
+                  { label: "Review Notifications",     desc: "When a patient leaves a review",        checked: false },
+                  { label: "Platform Updates",         desc: "News and feature announcements",        checked: false },
                 ].map((n) => (
                   <div key={n.label}
                     className="flex items-center justify-between py-2 border-b border-subtle last:border-0">
@@ -435,9 +454,10 @@ export default function DoctorProfilePage() {
                     {[
                       { label: "This Month", value: "$2,840" },
                       { label: "Last Month", value: "$3,120" },
-                      { label: "Total", value: "$18,450" },
+                      { label: "Total",      value: "$18,450" },
                     ].map((e) => (
-                      <div key={e.label} className="text-center p-3 rounded-xl bg-surface-800/40 border border-subtle">
+                      <div key={e.label}
+                        className="text-center p-3 rounded-xl bg-surface-800/40 border border-subtle">
                         <p className="text-lg font-display font-bold text-teal-400">{e.value}</p>
                         <p className="text-xs text-muted mt-0.5">{e.label}</p>
                       </div>
@@ -446,6 +466,7 @@ export default function DoctorProfilePage() {
                 </div>
               </div>
             )}
+
           </div>
         </div>
       </div>
