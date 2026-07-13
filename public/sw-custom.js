@@ -1,4 +1,4 @@
-/ VitaConnect Service Worker — full offline support
+// VitaConnect Service Worker — full offline support
 // Handles: static cache, API cache, push notifications, background sync
 
 const CACHE_VERSION   = "v2";

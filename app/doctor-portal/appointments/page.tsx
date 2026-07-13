@@ -1,58 +1,119 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DoctorDashboardLayout } from "@/components/layout/DoctorDasboardLayout";
 import Link from "next/link";
 import {
   Calendar, Video, Clock, Plus, ChevronRight,
   Search, Filter, CheckCircle2, XCircle, Mic,
-  MessageSquare, User,
+  MessageSquare, User, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const APPOINTMENTS = [
-  { id:"a1", patient:"Alex Johnson",   avatar:"AJ", avatarBg:"bg-brand-600/30 text-brand-300",
-    date:"Today",    time:"2:30 PM",  type:"VIDEO", status:"CONFIRMED", reason:"BP follow-up",      duration:30 },
-  { id:"a2", patient:"Maria Santos",   avatar:"MS", avatarBg:"bg-violet-600/30 text-violet-300",
-    date:"Today",    time:"3:30 PM",  type:"VIDEO", status:"CONFIRMED", reason:"Diabetes review",   duration:30 },
-  { id:"a3", patient:"Kwame Mensah",   avatar:"KM", avatarBg:"bg-teal-600/30 text-teal-300",
-    date:"Today",    time:"4:00 PM",  type:"AUDIO", status:"SCHEDULED", reason:"Hypertension",      duration:30 },
-  { id:"a4", patient:"Priya Nair",     avatar:"PN", avatarBg:"bg-amber-600/30 text-amber-300",
-    date:"Today",    time:"4:30 PM",  type:"CHAT",  status:"SCHEDULED", reason:"Post-surgery check",duration:20 },
-  { id:"a5", patient:"James Okonkwo",  avatar:"JO", avatarBg:"bg-rose-600/30 text-rose-300",
-    date:"Today",    time:"5:00 PM",  type:"VIDEO", status:"SCHEDULED", reason:"Annual wellness",   duration:30 },
-  { id:"a6", patient:"Amara Diallo",   avatar:"AD", avatarBg:"bg-indigo-600/30 text-indigo-300",
-    date:"Tomorrow", time:"9:00 AM",  type:"VIDEO", status:"SCHEDULED", reason:"Follow-up",         duration:30 },
-  { id:"a7", patient:"Tunde Bakare",   avatar:"TB", avatarBg:"bg-emerald-600/30 text-emerald-300",
-    date:"Tomorrow", time:"10:30 AM", type:"VIDEO", status:"SCHEDULED", reason:"Blood test review",  duration:30 },
-  { id:"a8", patient:"Chioma Eze",     avatar:"CE", avatarBg:"bg-rose-600/30 text-rose-300",
-    date:"Jun 10",   time:"11:00 AM", type:"VIDEO", status:"COMPLETED", reason:"Migraine check",    duration:20 },
-  { id:"a9", patient:"Lekan Adeyemi",  avatar:"LA", avatarBg:"bg-amber-600/30 text-amber-300",
-    date:"Jun 9",    time:"2:00 PM",  type:"AUDIO", status:"COMPLETED", reason:"Routine checkup",   duration:30 },
-  { id:"a10",patient:"Fatima Hassan",  avatar:"FH", avatarBg:"bg-violet-600/30 text-violet-300",
-    date:"Jun 8",    time:"3:00 PM",  type:"CHAT",  status:"CANCELLED", reason:"Skin rash",         duration:20 },
-];
+interface Appointment {
+  id: string;
+  patientId: string;
+  patientName: string;
+  avatar: string;
+  date: string;
+  time: string;
+  isToday: boolean;
+  type: string;
+  status: string;
+  reason: string;
+  duration: number;
+  roomId: string | null;
+}
 
 const TYPE_ICONS: Record<string, React.ElementType> = { VIDEO: Video, AUDIO: Mic, CHAT: MessageSquare };
 const STATUS_BADGE: Record<string, string> = {
   CONFIRMED:"badge-success", SCHEDULED:"badge-info",
   COMPLETED:"badge-teal",    CANCELLED:"badge-danger", IN_PROGRESS:"badge-warning",
+  NO_SHOW:"badge-danger",    RESCHEDULED:"badge-info",
 };
+const AVATAR_COLORS = [
+  "bg-brand-600/30 text-brand-300", "bg-violet-600/30 text-violet-300",
+  "bg-teal-600/30 text-teal-300", "bg-amber-600/30 text-amber-300",
+  "bg-rose-600/30 text-rose-300", "bg-indigo-600/30 text-indigo-300",
+  "bg-emerald-600/30 text-emerald-300",
+];
 const TABS = ["All","Today","Upcoming","Completed","Cancelled"] as const;
 type Tab = typeof TABS[number];
 
-export default function DoctorAppointmentsPage() {
-  const [tab,    setTab]    = useState<Tab>("Today");
-  const [search, setSearch] = useState("");
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+}
 
-  const filtered = APPOINTMENTS.filter((a) => {
+function avatarBg(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function formatDateLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export default function DoctorAppointmentsPage() {
+  const [tab, setTab] = useState<Tab>("Today");
+  const [search, setSearch] = useState("");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/appointments");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          console.error("[DoctorAppointmentsPage] fetch failed:", res.status, body);
+          return;
+        }
+        const { appointments: raw } = await res.json();
+
+        const transformed: Appointment[] = (raw || []).map((a: any) => {
+          const scheduled = new Date(a.scheduledAt);
+          return {
+            id: a.id,
+            patientId: a.patient?.id ?? a.patientId,
+            patientName: a.patient?.name ?? "Unknown patient",
+            avatar: initials(a.patient?.name ?? "?"),
+            date: formatDateLabel(a.scheduledAt),
+            time: scheduled.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+            isToday: formatDateLabel(a.scheduledAt) === "Today",
+            type: a.type,
+            status: a.status,
+            reason: a.reason || "No reason provided",
+            duration: a.duration,
+            roomId: a.roomId ?? null,
+          };
+        });
+
+        setAppointments(transformed);
+      } catch (err) {
+        console.error("[DoctorAppointmentsPage] load failed:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const filtered = appointments.filter((a) => {
     const matchSearch = search === "" ||
-      a.patient.toLowerCase().includes(search.toLowerCase()) ||
+      a.patientName.toLowerCase().includes(search.toLowerCase()) ||
       a.reason.toLowerCase().includes(search.toLowerCase());
     const matchTab =
       tab === "All"       ? true :
-      tab === "Today"     ? a.date === "Today" :
-      tab === "Upcoming"  ? ["SCHEDULED","CONFIRMED"].includes(a.status) && a.date !== "Today" :
+      tab === "Today"     ? a.isToday :
+      tab === "Upcoming"  ? ["SCHEDULED","CONFIRMED"].includes(a.status) && !a.isToday :
       tab === "Completed" ? a.status === "COMPLETED" :
       tab === "Cancelled" ? a.status === "CANCELLED" : true;
     return matchSearch && matchTab;
@@ -94,29 +155,32 @@ export default function DoctorAppointmentsPage() {
 
         {/* List */}
         <div className="space-y-2.5">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="glass border border-subtle p-12 text-center">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-400 mx-auto" />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="glass border border-subtle p-12 text-center">
               <Calendar className="w-10 h-10 text-muted mx-auto mb-3 opacity-40" />
               <p className="text-secondary font-display">No appointments found</p>
             </div>
           ) : filtered.map((apt) => {
             const TypeIcon = TYPE_ICONS[apt.type] ?? Video;
-            const isToday  = apt.date === "Today";
             return (
               <div key={apt.id} className={cn(
                 "glass border transition-all duration-200 hover:shadow-card-hover",
-                isToday && apt.status === "CONFIRMED"
+                apt.isToday && apt.status === "CONFIRMED"
                   ? "border-teal-500/30 bg-teal-500/5"
                   : "border-subtle"
               )}>
                 <div className="flex items-center gap-4 p-4">
                   <div className={cn(
                     "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
-                    "font-display font-bold text-xs border border-white/10", apt.avatarBg
+                    "font-display font-bold text-xs border border-white/10", avatarBg(apt.patientId)
                   )}>{apt.avatar}</div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-display font-bold text-primary">{apt.patient}</p>
+                    <p className="text-sm font-display font-bold text-primary">{apt.patientName}</p>
                     <p className="text-xs text-muted italic truncate">{apt.reason}</p>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <span className="flex items-center gap-1 text-xs text-muted">
@@ -132,17 +196,17 @@ export default function DoctorAppointmentsPage() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={cn("badge text-xs py-0.5", STATUS_BADGE[apt.status])}>
+                    <span className={cn("badge text-xs py-0.5", STATUS_BADGE[apt.status] ?? "badge-info")}>
                       {apt.status.toLowerCase()}
                     </span>
                     {(apt.status === "CONFIRMED" || apt.status === "SCHEDULED") && (
-                      <Link href={`/video?room=${apt.id}`}
+                      <Link href={`/video?room=${apt.roomId ?? apt.id}`}
                         className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5">
                         <Video className="w-3 h-3" /> Start
                       </Link>
                     )}
                     {apt.status === "COMPLETED" && (
-                      <Link href={`/doctor-portal/patients/${apt.id}`}
+                      <Link href={`/doctor-portal/patients/${apt.patientId}`}
                         className="btn-ghost text-xs py-1.5 px-3 flex items-center gap-1">
                         Notes <ChevronRight className="w-3 h-3" />
                       </Link>

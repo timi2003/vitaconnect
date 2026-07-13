@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/page": [
+    "/doctor-portal/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
+      "static/chunks/app/doctor-portal/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
@@ -11,10 +11,35 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/auth/login/page": [
+    "/doctor-portal/prescriptions/new/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/auth/login/page.js"
+      "static/chunks/app/doctor-portal/prescriptions/new/page.js"
+    ],
+    "/doctor-portal/patients/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/patients/page.js"
+    ],
+    "/profile/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/profile/page.js"
+    ],
+    "/prescriptions/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/prescriptions/page.js"
+    ],
+    "/doctor-portal/appointments/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/appointments/page.js"
+    ],
+    "/doctor-portal/availability/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/doctor-portal/availability/page.js"
     ],
     "/dashboard/page": [
       "static/chunks/webpack.js",
@@ -26,40 +51,35 @@
       "static/chunks/main-app.js",
       "static/chunks/app/messages/page.js"
     ],
-    "/appointments/page": [
+    "/notifications/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/appointments/page.js"
+      "static/chunks/app/notifications/page.js"
     ],
-    "/appointments/new/page": [
+    "/lab-results/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/appointments/new/page.js"
+      "static/chunks/app/lab-results/page.js"
     ],
-    "/doctors/page": [
+    "/records/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/doctors/page.js"
+      "static/chunks/app/records/page.js"
     ],
-    "/appointments/[id]/page": [
+    "/doctor-portal/profile/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/appointments/[id]/page.js"
+      "static/chunks/app/doctor-portal/profile/page.js"
     ],
-    "/doctor-portal/page": [
+    "/doctor-portal/medical-records/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/doctor-portal/page.js"
+      "static/chunks/app/doctor-portal/medical-records/page.js"
     ],
-    "/doctor-portal/messages/page": [
+    "/_not-found/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/doctor-portal/messages/page.js"
-    ],
-    "/doctor-portal/patients/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/doctor-portal/patients/page.js"
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }

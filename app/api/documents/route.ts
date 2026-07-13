@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase";
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-// ── DocType defined locally — no external import needed ──────────────────────
+const BUCKET = "medical-documents";
+
 type DocType =
   | "PRESCRIPTION"
   | "LAB_REPORT"
@@ -17,27 +16,6 @@ type DocType =
   | "INSURANCE"
   | "CONSENT"
   | "OTHER";
-
-// ── R2 client ────────────────────────────────────────────────────────────────
-const r2 = new S3Client({
-  region:   "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId:     process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-});
-
-async function freshUrl(storagePath: string): Promise<string> {
-  return getSignedUrl(
-    r2,
-    new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME!,
-      Key:    storagePath,
-    }),
-    { expiresIn: 60 * 60 * 2 } // 2 hours
-  );
-}
 
 // ── GET /api/documents ────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -52,10 +30,10 @@ export async function GET(req: NextRequest) {
   const supabase = createServerSupabaseClient();
 
   let query = supabase
-    .from("medical_documents")
+    .from("MedicalDocument")
     .select("*")
-    .eq("user_id", session.user.id)
-    .order("created_at", { ascending: false })
+    .eq("userId", session.user.id)
+    .order("createdAt", { ascending: false })
     .limit(100);
 
   if (type) query = query.eq("type", type);
@@ -67,14 +45,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch documents" }, { status: 500 });
   }
 
-  // Re-sign R2 URLs so they never expire on the client
+  // Re-sign Supabase Storage URLs so they never expire on the client.
+  // "description" holds the storage path (see uploads route) — note this
+  // overloads a field meant for user-facing notes about the document.
   const refreshed = await Promise.allSettled(
-    documents.map(async (doc) => {
-      if (!doc.description) return doc; // description holds the R2 key
+    (documents || []).map(async (doc: any) => {
+      if (!doc.description) return doc;
       try {
-        return { ...doc, file_url: await freshUrl(doc.description) };
+        const { data: signed, error: signErr } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrl(doc.description, 60 * 60 * 2); // 2 hours
+        if (signErr || !signed) return doc;
+        return { ...doc, fileUrl: signed.signedUrl };
       } catch {
-        return doc; // fall back to stored URL
+        return doc; // fall back to the stored URL
       }
     })
   );
@@ -99,34 +83,30 @@ export async function DELETE(req: NextRequest) {
   const supabase = createServerSupabaseClient();
 
   const { data: doc, error: fetchError } = await supabase
-    .from("medical_documents")
+    .from("MedicalDocument")
     .select("description")
     .eq("id", id)
-    .eq("user_id", session.user.id)
+    .eq("userId", session.user.id)
     .single();
 
   if (fetchError || !doc) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Delete from R2 first (non-fatal)
   if (doc.description) {
-    try {
-      await r2.send(new DeleteObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME!,
-        Key:    doc.description,
-      }));
-    } catch (err) {
-      console.error("[documents DELETE] R2 removal failed:", err);
+    const { error: removeErr } = await supabase.storage.from(BUCKET).remove([doc.description]);
+    if (removeErr) {
+      console.error("[documents DELETE] storage removal failed (non-fatal):", removeErr);
     }
   }
 
   const { error: deleteError } = await supabase
-    .from("medical_documents")
+    .from("MedicalDocument")
     .delete()
     .eq("id", id);
 
   if (deleteError) {
+    console.error("[documents DELETE]", deleteError);
     return NextResponse.json({ error: "Failed to delete document" }, { status: 500 });
   }
 

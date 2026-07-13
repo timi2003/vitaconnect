@@ -149,13 +149,37 @@ function NewPrescriptionForm() {
 
     setLoading(true);
     try {
-      // TODO: wire to a real /api/prescriptions endpoint once the
-      // Prescription table schema is confirmed — this still doesn't persist yet.
-      await new Promise((r) => setTimeout(r, 1000));
+      const res = await fetch("/api/prescriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId,
+          diagnosis: diagnosis || undefined,
+          notes: notes || undefined,
+          refillsAllowed: refills,
+          medications: meds.map((m) => ({
+            medicationName: m.medicationName,
+            dosage: m.dosage,
+            form: m.form,
+            frequency: m.frequency,
+            duration: m.duration,
+            quantity: m.quantity,
+            instructions: m.instructions || undefined,
+            isChronic: m.isChronic,
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to issue prescription");
+      }
+
       toast.success("Prescription issued successfully");
       router.push("/doctor-portal/patients");
-    } catch {
-      toast.error("Failed to issue prescription");
+    } catch (err: any) {
+      console.error("[NewPrescriptionPage] submit failed:", err);
+      toast.error(err.message || "Failed to issue prescription");
     } finally {
       setLoading(false);
     }

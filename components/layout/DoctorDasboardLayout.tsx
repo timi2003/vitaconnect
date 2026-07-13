@@ -33,9 +33,9 @@ const NAV_ITEMS = [
   {
     section: "Clinical",
     items: [
-      { href: "/doctor-portal/prescriptions", icon: ClipboardList,   label: "Prescriptions",    badge: null },
+      { href: "/doctor-portal/prescriptions/new", icon: ClipboardList,   label: "Prescriptions",    badge: null },
       { href: "/doctor-portal/lab-orders",    icon: TestTube2,       label: "Lab Orders",       badge: null },
-      { href: "/doctor-portal/records",       icon: FileText,        label: "Medical Records",  badge: null },
+      { href: "/doctor-portal/medical-records",       icon: FileText,        label: "Medical Records",  badge: null },
     ],
   },
   {

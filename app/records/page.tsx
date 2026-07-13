@@ -116,7 +116,9 @@ export default function RecordsPage() {
       const body = new FormData();
       body.append("file", file);
 
-      const res = await fetch("/api/documents/upload", { method: "POST", body });
+      // NOTE: the real backend folder is "uploads" (plural) — this was
+      // previously pointing at "/api/documents/upload" and 404ing every time.
+      const res = await fetch("/api/documents/uploads", { method: "POST", body });
       clearInterval(progressRef.current!);
 
       if (!res.ok) {
