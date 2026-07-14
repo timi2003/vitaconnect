@@ -238,10 +238,13 @@ export async function GET(req: NextRequest) {
 
   const supabase = createServerSupabaseClient();
 
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
   let query = supabase
-    .from("HealtMmetrics")
+    .from("HealthMetrics")
     .select("*")
     .eq("user_id", session.user.id)
+    .gte("recorded_at", since)
     .order("recorded_at", { ascending: false })
     .limit(500);
 
@@ -252,6 +255,7 @@ export async function GET(req: NextRequest) {
   const { data: metrics, error } = await query;
 
   if (error) {
+    console.error("[health-data/sync GET]", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
