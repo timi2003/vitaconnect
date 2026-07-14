@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
       }
 
       const { error: insertError } = await supabase
-        .from("health_metrics")
+        .from("HealthMetrics")
         .insert(toInsert);
 
       if (insertError) throw insertError;
@@ -239,7 +239,7 @@ export async function GET(req: NextRequest) {
   const supabase = createServerSupabaseClient();
 
   let query = supabase
-    .from("health_metrics")
+    .from("HealtMmetrics")
     .select("*")
     .eq("user_id", session.user.id)
     .order("recorded_at", { ascending: false })
