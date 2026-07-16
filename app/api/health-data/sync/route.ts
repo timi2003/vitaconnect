@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,9 @@ function toDate(v: unknown): string {
 }
 
 // ── Transformer ───────────────────────────────────────────────────────────────
+// NOTE: columns are camelCase to match the actual Prisma-derived "HealthMetric"
+// table schema (userId, recordedAt, isAbnormal, syncId, etc — all quoted
+// camelCase identifiers in Postgres, NOT snake_case).
 
 function transformRecord(
   type: string,
@@ -65,12 +69,13 @@ function transformRecord(
   const syncId = getMeta(r).id ?? null;
 
   const base = {
-    user_id: userId,
+    id: randomUUID(),          // table has no default — must be supplied
+    userId: userId,
     type: metricType,
     source: "HEALTH_CONNECT",
-    sync_id: syncId,
-    is_abnormal: false,
-    recorded_at: toDate(r.time || r.endTime || r.startTime),
+    syncId: syncId,
+    isAbnormal: false,
+    recordedAt: toDate(r.time || r.endTime || r.startTime),
   };
 
   switch (type) {
@@ -87,7 +92,7 @@ function transformRecord(
         ...base,
         value: stressScore,
         unit: "score",
-        is_abnormal: stressScore >= 80,
+        isAbnormal: stressScore >= 80,
       };
     }
     case "BloodGlucose": {
@@ -96,7 +101,7 @@ function transformRecord(
         ...base,
         value: lvl,
         unit: "mg/dL",
-        is_abnormal: lvl > 126 || lvl < 70,
+        isAbnormal: lvl > 126 || lvl < 70,
       };
     }
     case "OxygenSaturation": {
@@ -105,7 +110,7 @@ function transformRecord(
         ...base,
         value: pct,
         unit: "%",
-        is_abnormal: pct < 95,
+        isAbnormal: pct < 95,
       };
     }
     case "Weight": {
@@ -156,7 +161,7 @@ function transformRecord(
       return { ...base, value: Math.round(kcal), unit: "kcal" };
     }
     default:
-      return base;
+      return { ...base, value: 0, unit: "" };
   }
 }
 
@@ -186,11 +191,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Deduplication
-      const incomingSyncIds = records
-        .map((r) => getMeta(r).id)
-        .filter((id): id is string => id !== undefined);
-
       // For simplicity, we'll skip deduplication for now or implement via unique constraint in DB
       const toInsert = records
         .map((r) => transformRecord(type, r, session.user.id));
@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
       }
 
       const { error: insertError } = await supabase
-        .from("HealthMetrics")
+        .from("HealthMetric")
         .insert(toInsert);
 
       if (insertError) throw insertError;
@@ -241,11 +241,11 @@ export async function GET(req: NextRequest) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
-    .from("HealthMetrics")
+    .from("HealthMetric")
     .select("*")
-    .eq("user_id", session.user.id)
-    .gte("recorded_at", since)
-    .order("recorded_at", { ascending: false })
+    .eq("userId", session.user.id)
+    .gte("recordedAt", since)
+    .order("recordedAt", { ascending: false })
     .limit(500);
 
   if (type) {
