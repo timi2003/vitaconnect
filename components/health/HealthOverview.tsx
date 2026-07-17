@@ -86,20 +86,25 @@ const METRIC_DEFS = [
     formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Low" : "Normal"),
   },
   {
-    id: "glucose",
-    apiType: "BLOOD_GLUCOSE",
-    label: "Blood Glucose",
-    unit: "mg/dL",
-    icon: Droplets,
-    gradient: "from-amber-500/20 to-yellow-500/10",
-    border: "border-amber-500/20",
-    iconColor: "text-amber-400",
-    progressColor: "bg-amber-400",
-    range: "70–99",
-    calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 70) / 56) * 100)),
-    formatValue: (v: number) => String(Math.round(v)),
-    formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Fasting OK"),
+  id: "calories",
+  apiType: "CALORIES_BURNED",
+  label: "Active Calories",
+  unit: "kcal",
+  icon: Flame,
+  gradient: "from-orange-500/20 to-red-500/10",
+  border: "border-orange-500/20",
+  iconColor: "text-orange-400",
+  progressColor: "bg-orange-400",
+  range: "Goal: 500 kcal",
+  calcProgress: (v: number) => Math.min(100, (v / 500) * 100),
+  formatValue: (v: number) => Math.round(v).toLocaleString(),
+  formatTrend: (m: HealthMetric) => {
+    const pct = Math.round((m.value / 500) * 100);
+    if (pct >= 100) return "Goal met!";
+    if (pct >= 50)  return `${pct}% goal`;
+    return "Keep going";
   },
+},
   {
     id: "sleep",
     apiType: "SLEEP_DURATION",
@@ -145,7 +150,7 @@ const METRIC_DEFS = [
     apiType: "STEPS",
     label: "Steps Today",
     unit: "steps",
-    icon: Flame,
+    icon: Activity,
     gradient: "from-orange-500/20 to-amber-500/10",
     border: "border-orange-500/20",
     iconColor: "text-orange-400",
