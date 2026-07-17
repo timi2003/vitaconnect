@@ -8,21 +8,20 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  Heart, Activity, Droplets, Wind, Thermometer,
+  Heart, Activity, Wind, Flame,
   Moon, Scale, Footprints, RefreshCw, Download,
-  Filter, Wifi, WifiOff, AlertCircle,
+  Filter, Wifi, WifiOff, AlertCircle, Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const METRIC_TABS = [
-  { id: "HEART_RATE",        label: "Heart Rate",  icon: Heart,       color: "#f87171", unit: "bpm"   },
-  { id: "BLOOD_PRESSURE",    label: "Blood Press.",icon: Activity,    color: "#60a5fa", unit: "mmHg"  },
-  { id: "BLOOD_GLUCOSE",     label: "Glucose",     icon: Droplets,    color: "#fbbf24", unit: "mg/dL" },
-  { id: "OXYGEN_SATURATION", label: "SpO2",        icon: Wind,        color: "#2dd4bf", unit: "%"     },
-  { id: "BODY_TEMPERATURE",  label: "Temperature", icon: Thermometer, color: "#a78bfa", unit: "°C"    },
-  { id: "SLEEP_DURATION",    label: "Sleep",       icon: Moon,        color: "#818cf8", unit: "min"   },
-  { id: "WEIGHT",            label: "Weight",      icon: Scale,       color: "#4ade80", unit: "kg"    },
-  { id: "STEPS",             label: "Steps",       icon: Footprints,  color: "#fb923c", unit: "steps" },
+  { id: "HEART_RATE",        label: "Heart Rate",      icon: Heart,      color: "#f87171", unit: "bpm"   },
+  { id: "STRESS_LEVEL",      label: "Stress Level",    icon: Brain,      color: "#60a5fa", unit: "score" },
+  { id: "CALORIES_BURNED",   label: "Active Calories", icon: Flame,      color: "#fb923c", unit: "kcal"  },
+  { id: "OXYGEN_SATURATION", label: "SpO2",            icon: Wind,       color: "#2dd4bf", unit: "%"     },
+  { id: "SLEEP_DURATION",    label: "Sleep",           icon: Moon,       color: "#818cf8", unit: "min"   },
+  { id: "WEIGHT",            label: "Weight",          icon: Scale,      color: "#4ade80", unit: "kg"    },
+  { id: "STEPS",             label: "Steps",           icon: Footprints, color: "#a78bfa", unit: "steps" },
 ];
 
 const RANGE_OPTIONS = [
@@ -58,24 +57,19 @@ const CustomTooltip = ({
 };
 
 // ── Safe live-value extractor ─────────────────────────────────────────────────
-// Health Connect returns different shapes per data type. We don't control the
-// type definition of HCRecord, so we cast to a loose record and try every
-// known field name. TypeScript is happy; runtime is safe.
 function extractLiveValue(record: unknown): number | string | null {
   if (record == null) return null;
   const r = record as Record<string, unknown>;
 
-  // Try known HC SDK field names in priority order
   const candidates = [
-    r["beatsPerMinute"],                        // HeartRate
-    r["count"],                                 // Steps
-    r["rate"],                                  // RespiratoryRate
-    r["percentage"],                            // OxygenSaturation
-    (r["level"] as Record<string, unknown> | undefined)?.["value"],           // BloodGlucose
-    (r["weight"] as Record<string, unknown> | undefined)?.["inKilograms"],    // Weight
-    (r["temperature"] as Record<string, unknown> | undefined)?.["inCelsius"], // BodyTemperature
-    (r["systolic"] as Record<string, unknown> | undefined)?.["inMillimetersOfMercury"], // BP
-    r["value"],                                 // Generic fallback
+    r["beatsPerMinute"],
+    r["count"],
+    r["rate"],
+    r["percentage"],
+    (r["energy"] as Record<string, unknown> | undefined)?.["inKilocalories"],
+    (r["weight"] as Record<string, unknown> | undefined)?.["inKilograms"],
+    (r["systolic"] as Record<string, unknown> | undefined)?.["value"],
+    r["value"],
   ];
 
   for (const c of candidates) {
@@ -138,8 +132,8 @@ export default function HealthDataPage() {
   const maxVal = chartData.length ? Math.max(...chartData.map((d) => d.value)) : 0;
   const minVal = chartData.length ? Math.min(...chartData.map((d) => d.value)) : 0;
 
-  const liveReading  = hc.liveMetrics[activeMetric];
-  const liveValue    = extractLiveValue(liveReading);
+  const liveReading = hc.liveMetrics[activeMetric];
+  const liveValue   = extractLiveValue(liveReading);
 
   return (
     <DashboardLayout>

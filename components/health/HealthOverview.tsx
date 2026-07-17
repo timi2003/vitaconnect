@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Heart, Droplets, Wind, Brain,
+  Heart, Wind, Brain,
   Activity, Moon, Scale, Flame, RefreshCw,
 } from "lucide-react";
 
@@ -23,16 +23,8 @@ interface MetricState {
   metric: HealthMetric | null;
 }
 
-// ── Metric definitions (no dummy values) ─────────────────────────────────────
-//
-// NOTE on Oraimo Watch 6 / 6 Pro:
-// - The "Blood Pressure" card has been replaced with "Stress Level". The
-//   watch has no BP sensor — its on-watch "Pressure" screen is a 0–100 score
-//   with a qualitative label ("Moderate" etc.), i.e. a stress score. The sync
-//   route now stores this under STRESS_LEVEL, so this card reads that type.
-// - The "Body Temperature" card has been removed entirely. That value was
-//   pulled from local weather data inside the Oraimo app (ambient/outdoor
-//   temp), not a body temperature sensor — it carried no real health signal.
+// ── Metric definitions ────────────────────────────────────────────────────────
+// Order: Heart Rate, O2, Calories, Weight, Steps, Stress Level, Sleep
 const METRIC_DEFS = [
   {
     id: "hr",
@@ -45,30 +37,9 @@ const METRIC_DEFS = [
     iconColor: "text-rose-400",
     progressColor: "bg-rose-400",
     range: "60–100",
-    // Progress: how far into 60–100 bpm range
     calcProgress: (v: number) => Math.min(100, Math.max(0, ((v - 60) / 40) * 100)),
     formatValue: (v: number) => String(Math.round(v)),
     formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Check" : "Normal"),
-  },
-  {
-    id: "stress",
-    apiType: "STRESS_LEVEL",
-    label: "Stress Level",
-    unit: "",
-    icon: Brain,
-    gradient: "from-blue-500/20 to-cyan-500/10",
-    border: "border-blue-500/20",
-    iconColor: "text-blue-400",
-    progressColor: "bg-blue-400",
-    range: "0–100",
-    calcProgress: (v: number) => Math.min(100, Math.max(0, v)),
-    formatValue: (v: number) => String(Math.round(v)),
-    formatTrend: (m: HealthMetric) => {
-      if (m.isAbnormal)   return "⚠ High";
-      if (m.value >= 60)  return "Moderate";
-      if (m.value >= 30)  return "Mild";
-      return "Relaxed";
-    },
   },
   {
     id: "o2",
@@ -86,48 +57,23 @@ const METRIC_DEFS = [
     formatTrend: (m: HealthMetric) => (m.isAbnormal ? "⚠ Low" : "Normal"),
   },
   {
-  id: "calories",
-  apiType: "CALORIES_BURNED",
-  label: "Active Calories",
-  unit: "kcal",
-  icon: Flame,
-  gradient: "from-orange-500/20 to-red-500/10",
-  border: "border-orange-500/20",
-  iconColor: "text-orange-400",
-  progressColor: "bg-orange-400",
-  range: "Goal: 500 kcal",
-  calcProgress: (v: number) => Math.min(100, (v / 500) * 100),
-  formatValue: (v: number) => Math.round(v).toLocaleString(),
-  formatTrend: (m: HealthMetric) => {
-    const pct = Math.round((m.value / 500) * 100);
-    if (pct >= 100) return "Goal met!";
-    if (pct >= 50)  return `${pct}% goal`;
-    return "Keep going";
-  },
-},
-  {
-    id: "sleep",
-    apiType: "SLEEP_DURATION",
-    label: "Last Sleep",
-    unit: "",
-    icon: Moon,
-    gradient: "from-indigo-500/20 to-blue-500/10",
-    border: "border-indigo-500/20",
-    iconColor: "text-indigo-400",
-    progressColor: "bg-indigo-400",
-    range: "7–9h",
-    // value is in minutes
-    calcProgress: (v: number) => Math.min(100, Math.max(0, (v / 540) * 100)),
-    formatValue: (v: number) => {
-      const h = Math.floor(v / 60);
-      const m = Math.round(v % 60);
-      return m > 0 ? `${h}h ${m}m` : `${h}h`;
-    },
+    id: "calories",
+    apiType: "CALORIES_BURNED",
+    label: "Active Calories",
+    unit: "kcal",
+    icon: Flame,
+    gradient: "from-orange-500/20 to-red-500/10",
+    border: "border-orange-500/20",
+    iconColor: "text-orange-400",
+    progressColor: "bg-orange-400",
+    range: "Goal: 500 kcal",
+    calcProgress: (v: number) => Math.min(100, (v / 500) * 100),
+    formatValue: (v: number) => Math.round(v).toLocaleString(),
     formatTrend: (m: HealthMetric) => {
-      const hours = m.value / 60;
-      if (hours >= 7 && hours <= 9) return "Good";
-      if (hours < 6) return "⚠ Short";
-      return "Fair";
+      const pct = Math.round((m.value / 500) * 100);
+      if (pct >= 100) return "Goal met!";
+      if (pct >= 50)  return `${pct}% goal`;
+      return "Keep going";
     },
   },
   {
@@ -141,7 +87,7 @@ const METRIC_DEFS = [
     iconColor: "text-emerald-400",
     progressColor: "bg-emerald-400",
     range: "Tracked",
-    calcProgress: (_v: number) => 60, // static visual for weight
+    calcProgress: (_v: number) => 60,
     formatValue: (v: number) => v.toFixed(1),
     formatTrend: (_m: HealthMetric) => "Logged",
   },
@@ -151,16 +97,61 @@ const METRIC_DEFS = [
     label: "Steps Today",
     unit: "steps",
     icon: Activity,
-    gradient: "from-orange-500/20 to-amber-500/10",
-    border: "border-orange-500/20",
-    iconColor: "text-orange-400",
-    progressColor: "bg-orange-400",
+    gradient: "from-violet-500/20 to-purple-500/10",
+    border: "border-violet-500/20",
+    iconColor: "text-violet-400",
+    progressColor: "bg-violet-400",
     range: "Goal: 10,000",
     calcProgress: (v: number) => Math.min(100, (v / 10_000) * 100),
     formatValue: (v: number) => Math.round(v).toLocaleString(),
     formatTrend: (m: HealthMetric) => {
       const pct = Math.round((m.value / 10_000) * 100);
       return `${pct}% goal`;
+    },
+  },
+  // ── Last two ──────────────────────────────────────────────────────────────
+  {
+    id: "stress",
+    apiType: "STRESS_LEVEL",
+    label: "Stress Level",
+    unit: "",
+    icon: Brain,
+    gradient: "from-blue-500/20 to-cyan-500/10",
+    border: "border-blue-500/20",
+    iconColor: "text-blue-400",
+    progressColor: "bg-blue-400",
+    range: "0–100",
+    calcProgress: (v: number) => Math.min(100, Math.max(0, v)),
+    formatValue: (v: number) => String(Math.round(v)),
+    formatTrend: (m: HealthMetric) => {
+      if (m.isAbnormal)  return "⚠ High";
+      if (m.value >= 60) return "Moderate";
+      if (m.value >= 30) return "Mild";
+      return "Relaxed";
+    },
+  },
+  {
+    id: "sleep",
+    apiType: "SLEEP_DURATION",
+    label: "Last Sleep",
+    unit: "",
+    icon: Moon,
+    gradient: "from-indigo-500/20 to-blue-500/10",
+    border: "border-indigo-500/20",
+    iconColor: "text-indigo-400",
+    progressColor: "bg-indigo-400",
+    range: "7–9h",
+    calcProgress: (v: number) => Math.min(100, Math.max(0, (v / 540) * 100)),
+    formatValue: (v: number) => {
+      const h = Math.floor(v / 60);
+      const m = Math.round(v % 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    },
+    formatTrend: (m: HealthMetric) => {
+      const hours = m.value / 60;
+      if (hours >= 7 && hours <= 9) return "Good";
+      if (hours < 6) return "⚠ Short";
+      return "Fair";
     },
   },
 ] as const;
@@ -175,17 +166,12 @@ async function fetchLatestMetric(apiType: string): Promise<HealthMetric | null> 
     );
     if (!res.ok) return null;
     const { metrics } = (await res.json()) as { metrics: HealthMetric[] };
-    // API returns desc order → index 0 is the most recent
     return metrics?.[0] ?? null;
   } catch {
     return null;
   }
 }
 
-// Fallback for the Weight card — used only when Health Connect has no synced
-// WEIGHT reading yet. Pulls the manually-entered value from the user's profile
-// (User.weight) and reshapes it into the same HealthMetric shape so it flows
-// through the exact same render/format logic as a synced metric.
 async function fetchProfileWeight(): Promise<HealthMetric | null> {
   try {
     const res = await fetch("/api/profile", { cache: "no-store" });
@@ -194,7 +180,6 @@ async function fetchProfileWeight(): Promise<HealthMetric | null> {
       user: { weight: number | null };
     };
     if (user?.weight == null) return null;
-
     return {
       id: "profile-weight",
       type: "WEIGHT",
@@ -222,7 +207,6 @@ export function HealthOverview() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const loadAll = async () => {
-    // Reset to loading
     setStates((prev) =>
       Object.fromEntries(
         Object.keys(prev).map((k) => [k, { loading: true, metric: prev[k].metric }])
@@ -233,8 +217,6 @@ export function HealthOverview() {
       METRIC_DEFS.map(async (def) => {
         let metric = await fetchLatestMetric(def.apiType);
 
-        // Weight-specific fallback: if Health Connect has no synced reading,
-        // use the value the user entered on their profile instead.
         if (def.id === "weight" && !metric) {
           metric = await fetchProfileWeight();
         }
@@ -300,7 +282,6 @@ export function HealthOverview() {
               key={def.id}
               className={`metric-card p-4 bg-gradient-to-br ${def.gradient}`}
             >
-              {/* Header */}
               <div className="flex items-center justify-between mb-3">
                 <div
                   className={`w-8 h-8 rounded-lg bg-surface-900/60 flex items-center justify-center border ${def.border}`}
@@ -325,7 +306,6 @@ export function HealthOverview() {
                 )}
               </div>
 
-              {/* Value */}
               <div className="mb-3">
                 {loading ? (
                   <>
@@ -347,7 +327,6 @@ export function HealthOverview() {
                 )}
               </div>
 
-              {/* Progress bar */}
               <div className="progress-bar">
                 {!loading && metric && (
                   <div
