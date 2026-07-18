@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 
 const MOCK_PATIENT = {
-  id: "p1", name: "Alex Johnson", avatar: "AJ", avatarBg: "bg-brand-600/30 text-brand-300",
+  id: "p1", name: "Femi Kolawole", avatar: "AJ", avatarBg: "bg-brand-600/30 text-brand-300",
   age: 35, gender: "Male", bloodType: "O+", weight: "73.2 kg", height: "178 cm",
   phone: "+1-555-0100", email: "alex@email.com",
   insurance: "BlueCross BC-8829-AJ",
